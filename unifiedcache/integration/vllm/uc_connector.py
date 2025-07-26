@@ -506,21 +506,22 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         self.load_paras.clear()
 
         # When prompt tokens > max_num_batched_tokens, request of running requests may need to save
-        for cached_req in scheduler_output.scheduled_cached_reqs:
-            if cached_req.resumed_from_preemption:
+        cached_request_data = scheduler_output.scheduled_cached_reqs
+        for i, req_id in enumerate(cached_request_data.req_ids):
+            if cached_request_data.resumed_from_preemption[i]:
                 continue
 
-            save_paras = self.save_paras.get(cached_req.req_id, None)
+            save_paras = self.save_paras.get(req_id, None)
             if save_paras is None:
                 continue
             save_paras.num_blocks_saved += save_paras.num_blocks_to_save
             if save_paras.num_blocks_need_save > save_paras.num_blocks_saved:
-                logger.debug(f"Running request {cached_req.req_id} has blocks to save")
+                logger.debug(f"Running request {req_id} has blocks to save")
                 save_paras.start_save_position = 0
-                new_scheduled_blocks = scheduler_output.num_scheduled_tokens[cached_req.req_id] // self.block_size
+                new_scheduled_blocks = scheduler_output.num_scheduled_tokens[req_id] // self.block_size
                 save_paras.num_blocks_to_save = new_scheduled_blocks
-                meta.add_request(cached_req.req_id,
-                                 vllm_block_ids=cached_req.new_block_ids[0],
+                meta.add_request(req_id,
+                                 vllm_block_ids=cached_request_data.new_block_ids[i][0],
                                  load_paras=None,
                                  save_paras=save_paras)
         return meta
