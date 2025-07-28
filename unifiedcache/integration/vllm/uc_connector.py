@@ -11,7 +11,6 @@ from vllm.distributed.kv_transfer.kv_connector.v1.base import (
 from vllm.utils import sha256
 from vllm.v1.core.kv_cache_utils import hash_request_tokens
 from vllm.v1.core.sched.output import SchedulerOutput
-from vllm.v1.request import RequestStatus
 
 from unifiedcache.logger import init_logger
 from unifiedcache.ucm_connector.base import Task
@@ -105,9 +104,11 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         if self._vllm_config.kv_transfer_config is not None and \
                 "ucm_connector_name" in self._vllm_config.kv_transfer_config.kv_connector_extra_config:
             name = self._vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_name"]
-            config = None
+            config = {}
             if "ucm_connector_config" in self._vllm_config.kv_transfer_config.kv_connector_extra_config:
                 config = self._vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_config"]
+            config["device"] = self.rank
+            config["role"] = "scheduler" if role == KVConnectorRole.SCHEDULER else "worker"
             logger.info("init UCConnectorImpl, connector: %s", name)
             self.connector = UcmConnectorFactory.create_connector(name, config)
         else:
@@ -167,14 +168,12 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         layer_id = self._extract_layer_index(layer_name)
 
         for blk_id in vllm_block_ids:
-            k_layer_block = kv_layer[0][blk_id].contiguous()
             k_data_offset = self.DataOffset(kv_layer, self.rank, layer_id, False)
-            k_tensors.append(k_layer_block)
+            k_tensors.append(kv_layer[0][blk_id])
             k_offsets.append(k_data_offset)
             if not self.is_mla:
-                v_layer_block = kv_layer[1][blk_id].contiguous()
                 v_data_offset = self.DataOffset(kv_layer, self.rank, layer_id, True)
-                v_tensors.append(v_layer_block)
+                v_tensors.append(kv_layer[1][blk_id])
                 v_offsets.append(v_data_offset)
         return k_tensors + v_tensors, k_offsets + v_offsets
 
@@ -332,6 +331,11 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
                 f"length of need save vllm_block_ids = {len(vllm_block_ids)},\n"
                 f"length of storage_block_ids = {len(storage_block_ids)},\n"
             )
+            if kv_layer.device.type == "npu":
+                torch.npu.current_stream().synchronize()
+            elif kv_layer.device.type == "cuda":
+                torch.cuda.current_stream().synchronize()
+
             for block_id, offset, tensor in zip(storage_block_ids,
                                                 offsets[:blocks_len],
                                                 tensors[:blocks_len]):
