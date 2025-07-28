@@ -30,7 +30,7 @@ extensions = [
 
 myst_enable_extensions = ["colon_fence", "substitution"]
 
-templates_path = ['_templates']
+# templates_path = ['_templates']
 exclude_patterns = []
 
 
@@ -47,6 +47,6 @@ html_theme_options = {
     'use_repository_button': True,
     'use_edit_page_button': True,
 }
-html_static_path = ['_static']
+# html_static_path = ['_static']
 
 # language = 'zh_CN'
