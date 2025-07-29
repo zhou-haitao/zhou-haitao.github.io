@@ -75,10 +75,20 @@ vllm serve /home/models/Qwen2.5-14B-Instruct \
 }'
 ```
 
+If you see log as below:
+
+```bash
+INFO:     Started server process [32890]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+```
+
+Congratulations, you have successfully started the vLLM server with DRAM Connector!
+
 Afrer successfully started the vLLM server，You can interact with the API as following:
 
 ```bash
-curl https://localhost:7800/v1/completions \
+curl http://localhost:7800/v1/completions \
     -H "Content-Type: application/json" \
     -d '{
         "model": "/home/models/Qwen2.5-14B-Instruct",
