@@ -11,10 +11,21 @@ SUCCESS = 0
 FAILURE = -1
 MB_TO_BYTE = 1048576
 
+if torch.cuda.is_available():
+    device = torch.cuda
+elif hasattr(torch, 'npu') and torch.npu.is_available():
+    device = torch.npu
+else:
+    raise RuntimeError(
+        "No supported accelerator found. "
+        "Please ensure either CUDA or NPU is available."
+    )
+
+
 @dataclass
 class DramTask(Task):
     task_id: str = '1'
-    event: Optional[torch.npu.Event] = None
+    event: Optional[device.Event] = None
 
 
 class UcmDram(UcmKVStoreBase):
@@ -27,10 +38,10 @@ class UcmDram(UcmKVStoreBase):
         self.dram_cache: Dict[str, any] = {}
         self.max_cache_byte = int(config.get("max_cache_size", 5120)) * MB_TO_BYTE
         self.kv_block_size = config["kv_block_size"]
-        self.max_block_num = self.max_cache_byte//self.kv_block_size
+        self.max_block_num = self.max_cache_byte // self.kv_block_size
         if config["role"] == "scheduler":
             self.cached_blocks = set()
-    
+
     def create(self, block_ids: List[str]) -> int:
         """
         create kv cache space in storafe
@@ -77,9 +88,9 @@ class UcmDram(UcmKVStoreBase):
             task(Task).
         """
         task = DramTask()
-        stream = torch.npu.Stream()
-        task.event = torch.npu.Event(enable_timing=True)
-        with torch.npu.stream(stream):
+        stream = device.Stream()
+        task.event = device.Event(enable_timing=True)
+        with device.stream(stream):
             for i, block_id in enumerate(block_ids):
                 key = block_id + '_' + str(offset[i])
                 dst_tensor[i].copy_(self.dram_cache[key], non_blocking=True)
@@ -100,14 +111,15 @@ class UcmDram(UcmKVStoreBase):
         """
         task = DramTask()
         if len(self.dram_cache) > self.max_block_num:
-            logger.warning("Dram cache usage exceeds limit! No more kv cache offload! Try to increase your initial max_cache_size.")
+            logger.warning(
+                "Dram cache usage exceeds limit! No more kv cache offload! Try to increase your initial max_cache_size.")
             task.task_id = "-1"
             return task
         else:
-            torch.npu.current_stream().synchronize()
-            stream = torch.npu.Stream()
-            task.event = torch.npu.Event(enable_timing = True)
-            with torch.npu.stream(stream):
+            device.current_stream().synchronize()
+            stream = device.Stream()
+            task.event = device.Event(enable_timing=True)
+            with device.stream(stream):
                 for i, block_id in enumerate(block_ids):
                     key = block_id + '_' + str(offset[i])
                     self.dram_cache[key] = src_tensor[i].to('cpu', non_blocking=True)

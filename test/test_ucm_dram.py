@@ -1,9 +1,8 @@
 import random
+import torch
 import unittest
 from typing import List
 from unittest.mock import MagicMock
-
-import torch
 from vllm.multimodal.inputs import MultiModalKwargs
 from vllm.sampling_params import SamplingParams
 from vllm.utils import sha256
@@ -35,6 +34,7 @@ def make_request(request_id,
         lora_request=None,
         cache_salt=cache_salt,
     )
+
 
 class TestUcmDram(unittest.TestCase):
 
@@ -84,12 +84,12 @@ class TestUcmDram(unittest.TestCase):
         actual = self.scheduler_dram.lookup(self.block_hashes)
 
         self.assertEqual(actual, expected)
-    
+
     def test_lookup_partial_hit(self):
         '''
         Test for part of the blocks hitten in cache
         '''
-        partial_index = random.randint(0,4)
+        partial_index = random.randint(0, 4)
         partial_hashes = self.block_hashes[:partial_index]
         self.scheduler_dram.cached_blocks.update(partial_hashes)
         actual = self.scheduler_dram.lookup(self.block_hashes)
@@ -108,27 +108,27 @@ class TestUcmDram(unittest.TestCase):
         '''
         Test for load from cache successfully
         '''
-        src_tensors = [torch.randint(0,100, (self.block_size,),dtype = torch.int8)
+        src_tensors = [torch.randint(0, 100, (self.block_size,), dtype=torch.int8)
                        for _ in range(len(self.block_hashes))]
         offsets = [i for i in range(len(self.block_hashes))]
         dump_task = self.worker_dram.dump(self.block_hashes, offsets, src_tensors)
         self.worker_dram.wait(dump_task)
-        dst_tensors = [torch.zeros(self.block_size, dtype = torch.int8)
+        dst_tensors = [torch.zeros(self.block_size, dtype=torch.int8)
                        for _ in range(len(self.block_hashes))]
         load_task = self.worker_dram.load(self.block_hashes, offsets, dst_tensors)
 
         self.assertIsInstance(load_task, DramTask)
         self.assertIsNotNone(load_task.event)
-        for i, (src_tensor, dst_tensor) in  enumerate(zip(src_tensors, dst_tensors)):
+        for i, (src_tensor, dst_tensor) in enumerate(zip(src_tensors, dst_tensors)):
             self.assertEqual(dst_tensor.shape[0], self.block_size)
             self.assertTrue(torch.equal(src_tensor, dst_tensor),
                             f"Block {i} loaded data is different")
-    
+
     def test_dump_success(self):
         '''
         Test data dump successfully
         '''
-        src_tensors = [torch.randint(0,100, (self.block_size,),dtype = torch.int8)
+        src_tensors = [torch.randint(0, 100, (self.block_size,), dtype=torch.int8)
                        for _ in range(len(self.block_hashes))]
         offsets = [i for i in range(len(self.block_hashes))]
         original_data = [tensor.clone() for tensor in src_tensors]
@@ -141,7 +141,7 @@ class TestUcmDram(unittest.TestCase):
             cached_data = self.worker_dram.dram_cache[key]
             self.assertEqual(cached_data.shape[0], self.block_size)
             self.assertTrue(torch.equal(cached_data, original_data[i]))
-    
+
     def test_wait_success(self):
         '''
         Test wait for task successfully
@@ -151,12 +151,13 @@ class TestUcmDram(unittest.TestCase):
         result = self.worker_dram.wait(task)
         self.assertEqual(result, 0)
         task.event.synchronize.assert_called_once()
-    
+
     def test_wait_failure(self):
         task = DramTask()
         task.event = None
         result = self.worker_dram.wait(task)
         self.assertEqual(result, -1)
+
 
 if __name__ == '__main__':
     unittest.main()
