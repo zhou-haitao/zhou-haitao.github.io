@@ -9,7 +9,6 @@ logger = init_logger(__name__)
 
 SUCCESS = 0
 FAILURE = -1
-MB_TO_BYTE = 1048576
 
 if torch.cuda.is_available():
     device = torch.cuda
@@ -36,7 +35,7 @@ class UcmDram(UcmKVStoreBase):
     def __init__(self, config: Dict):
         super().__init__(config)
         self.dram_cache: Dict[str, any] = {}
-        self.max_cache_byte = int(config.get("max_cache_size", 5120)) * MB_TO_BYTE
+        self.max_cache_byte = int(config.get("max_cache_size", 5368709120))
         self.kv_block_size = config["kv_block_size"]
         self.max_block_num = self.max_cache_byte // self.kv_block_size
         if config["role"] == "scheduler":
