@@ -1,6 +1,6 @@
 import torch
 from dataclasses import dataclass
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from unifiedcache.logger import init_logger
 from unifiedcache.ucm_connector import Task, UcmKVStoreBase
@@ -25,7 +25,7 @@ else:
 @dataclass
 class DramTask(Task):
     task_id: str = '1'
-    event: Optional[device.Event] = None
+    event: Optional[Any] = None
 
 
 class UcmDram(UcmKVStoreBase):
