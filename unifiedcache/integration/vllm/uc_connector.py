@@ -101,6 +101,7 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         self.num_layers = vllm_config.model_config.get_num_layers(
             vllm_config.parallel_config
         )
+        self.element_size = vllm_config.model_config.dtype.itemsize
         if self._vllm_config.kv_transfer_config is not None and \
                 "ucm_connector_name" in self._vllm_config.kv_transfer_config.kv_connector_extra_config:
             name = self._vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_name"]
@@ -109,6 +110,9 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
                 config = self._vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_config"]
             config["device"] = self.rank
             config["role"] = "scheduler" if role == KVConnectorRole.SCHEDULER else "worker"
+            head_size = vllm_config.model_config.get_head_size()
+            total_num_kv_heads = vllm_config.model_config.get_total_num_kv_heads()
+            config["kv_block_size"] = self.block_size * head_size * total_num_kv_heads * self.element_size
             logger.info("init UCConnectorImpl, connector: %s", name)
             self.connector = UcmConnectorFactory.create_connector(name, config)
         else:
