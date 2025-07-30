@@ -1,0 +1,22 @@
+# Set to other image if needed
+FROM quay.io/ascend/vllm-ascend:v0.9.2rc1
+
+WORKDIR /workspace
+
+# Install unified-cache-management
+ARG UCM_REPO=https://github.com/ModelEngine-Group/unified-cache-management.git
+ARG UCM_BRANCH=develop
+RUN git clone --depth 1 $UCM_REPO --branch $UCM_BRANCH /vllm-workspace/unified-cache-management
+
+RUN pip install -v -e /vllm-workspace/unified-cache-management
+
+# Apply patch for vLLM
+RUN cd /vllm-workspace/vllm \
+    && git apply /vllm-workspace/unified-cache-management/unifiedcache/patch/vllm-adapt.patch
+
+# Apply patch for vLLM-Ascend
+RUN cd /vllm-workspace/vllm-ascend \
+    && git apply /vllm-workspace/unified-cache-management/unifiedcache/patch/vllm-ascend-adapt.patch
+
+
+CMD ["/bin/bash"]

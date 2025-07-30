@@ -42,7 +42,14 @@ cd ..
 ```
 
 ## Setup from docker
-Download the pre-built docker image provided. Then run your container using following command. You can add or remove Docker parameters as needed.
+Download the pre-built docker image provided or build unified-cache-management docker image by commands below:
+ ```bash
+ # Build docker image using source code
+ git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
+ cd unified-cache-management/docker
+ docker build -t ucm-vllm:latest -f ./Dockerfile ./
+ ```
+Then run your container using following command. You can add or remove Docker parameters as needed.
 ```bash
 # Use `--ipc=host` to make sure the shared memory is large enough.
 docker run --rm \
