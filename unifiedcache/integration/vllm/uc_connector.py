@@ -447,6 +447,11 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
             return 0, False
         hit_masks = self.connector.lookup(block_hashes)
         num_external_computed_tokens = sum(hit_masks) * self.block_size
+        # When all the tokens are cached in ssd and can be divided by block size,
+        # we need to recompute the last token. This if condition will be removed
+        # once vLLM's scheduler provides a better solution in the future.
+        if num_external_computed_tokens == request.num_tokens:
+            num_external_computed_tokens -= 1
         self.load_paras[request.request_id] = LoadPara(
             vllm_cached_tokens=num_computed_tokens,
             storage_cached_tokens=num_external_computed_tokens,
