@@ -3,7 +3,8 @@
 :::{toctree}
 :maxdepth: 2
 architecture.md
-block_layout.md
 add_connector.md
+nfs_connector.md
+performance_benchmark.md
 :::
 
