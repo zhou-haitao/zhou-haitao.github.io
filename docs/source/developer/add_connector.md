@@ -1,1 +1,1 @@
-# Add New Connector
+# How To Add New Connector
