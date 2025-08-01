@@ -1,23 +1,47 @@
+#
+# MIT License
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+
 import os
 import subprocess
-import torch
 from distutils.core import setup
+from pathlib import Path
 from setuptools import find_packages
 from setuptools.command.build_ext import build_ext
 
 ROOT_DIR = os.path.dirname(__file__)
-
+PLATFORM = os.getenv("PLATFORM")
 
 def get_path(*filepath) -> str:
     return os.path.join(ROOT_DIR, *filepath)
 
 
 def _is_cuda() -> bool:
-    return torch.cuda.is_available()
+    return PLATFORM == "cuda"
 
 
 def _is_npu() -> bool:
-    return hasattr(torch, 'npu') and torch.npu.is_available()
+    return PLATFORM == "ascend"
 
 
 class BuildUCMExtension(build_ext):
@@ -76,10 +100,11 @@ cmdclass = {
 }
 
 print("FOUND PACKAGES:", find_packages())
-
+__version__ = Path(__file__).with_name('VERSION').read_text().strip()
+print("Current version:", __version__)
 setup(
     name="unifiedcache",
-    version="0.0.1",
+    version=__version__,
     author="Unified Cache Team",
     description="Unified Cache Management",
     packages=find_packages(),
