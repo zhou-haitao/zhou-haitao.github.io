@@ -1,3 +1,29 @@
+#
+# MIT License
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+# Adapted from lmcache/lmcache/integration/vllm/vllm_v1_adapter.py
+#
+
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional, Any, Generator
 
@@ -110,9 +136,6 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
                 config = self._vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_config"]
             config["device"] = self.rank
             config["role"] = "scheduler" if role == KVConnectorRole.SCHEDULER else "worker"
-            head_size = vllm_config.model_config.get_head_size()
-            total_num_kv_heads = vllm_config.model_config.get_total_num_kv_heads()
-            config["kv_block_size"] = self.block_size * head_size * total_num_kv_heads * self.element_size
             logger.info("init UCConnectorImpl, connector: %s", name)
             self.connector = UcmConnectorFactory.create_connector(name, config)
         else:
@@ -451,7 +474,7 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         # we need to recompute the last token. This if condition will be removed
         # once vLLM's scheduler provides a better solution in the future.
         if num_external_computed_tokens == request.num_tokens:
-            num_external_computed_tokens -= 1
+            num_external_computed_tokens -= self.block_size
         self.load_paras[request.request_id] = LoadPara(
             vllm_cached_tokens=num_computed_tokens,
             storage_cached_tokens=num_external_computed_tokens,

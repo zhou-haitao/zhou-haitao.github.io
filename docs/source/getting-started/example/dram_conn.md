@@ -2,6 +2,14 @@
 
 This document provides a usage example and configuration guide for the **DRAM Connector**. This connector enables offloading of KV cache from GPU HBM to CPU DRAM, helping reduce memory pressure and support larger models or batch sizes.
 
+## Performance
+
+Combining UCM with vLLM delivers 3–10× improvements in latency and GPU efficiency, especially for long-context LLM tasks.
+
+<p align="center">
+  <img alt="UCM" src="../../images/dram_perform.png" width="90%">
+</p>
+
 ## Features
 
 The DRAM connector supports the following functionalities:
@@ -21,25 +29,28 @@ To use the DRAM connector, you need to configure the `connector_config` dictiona
 - `max_cache_size` *(optional)*:  
   Specifies the maximum allowed DRAM memory usage (in **byte**) for caching in `kv_connector_extra_config["ucm_connector_config"]`.  
   If not provided, it defaults to **5 GB**.
+- `kv_block_size` *(optional)*:  
+  Specifies the memory size (in bytes) of a single key or value cache block used in vLLM’s paged attention mechanism, which is calculated as : `block_size * head_size * total_num_kv_heads * element_size`.
 
 ### Example:
 
 ```python
-kv_connector_extra_config={"ucm_connector_name": "UcmDram", "ucm_connector_config":{"max_cache_size": 5368709120}}
 # Allocate up to 8GB DRAM for KV cache
+# KV Block size (in byte) is 262144
+kv_connector_extra_config={"ucm_connector_name": "UcmDram", "ucm_connector_config":{"max_cache_size": 5368709120, "kv_block_size": 262144}}
 ```
 
 ## Launching Inference
 
 ### Offline Inference
 
-To start **offline inference** with the DRAM connector，modify the script `examples/vllm_kv_offload.py` to include the `kv_connector_extra_config` for DRAM connector usage:
+To start **offline inference** with the DRAM connector，modify the script `examples/offline_inference.py` to include the `kv_connector_extra_config` for DRAM connector usage:
 
 ```python
-# In examples/vllm_kv_offload.py
+# In examples/offline_inference.py
 ktc = KVTransferConfig(
     ...
-    kv_connector_extra_config={"ucm_connector_name": "UcmDram", "ucm_connector_config":{"max_cache_size": 5368709120}}
+    kv_connector_extra_config={"ucm_connector_name": "UcmDram", "ucm_connector_config":{"max_cache_size": 5368709120, "kv_block_size": 262144}}
 )
 ```
 
@@ -47,12 +58,19 @@ Then run the script as follows:
 
 ```bash
 cd examples/
-python vllm_kv_offload.py
+python offline_inference.py
 ```
 
 ### Online Inference
 
-For **online inference** , vLLM with our connector can also be deployed as a server that implements the OpenAI API protocol. Run the following command to start the vLLM server with the Qwen/Qwen2.5-14B-Instruct model:
+For **online inference** , vLLM with our connector can also be deployed as a server that implements the OpenAI API protocol. 
+
+First, specify the python hash seed by:
+```bash
+export PYTHONHASHSEED=123456
+```
+
+Run the following command to start the vLLM server with the Qwen/Qwen2.5-14B-Instruct model:
 
 ```bash
 vllm serve /home/models/Qwen2.5-14B-Instruct \
@@ -69,7 +87,8 @@ vllm serve /home/models/Qwen2.5-14B-Instruct \
     "kv_connector_extra_config": {
         "ucm_connector_name": "UcmDram",
         "ucm_connector_config": {
-            "max_cache_size": 5368709120
+            "max_cache_size": 5368709120,
+            "kv_block_size": 262144
         }
     }
 }'

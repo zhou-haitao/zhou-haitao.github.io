@@ -44,8 +44,10 @@ Codes of vLLM and vLLM Ascend are placed in /vllm-workspace, you can refer to [v
 ### Build from source code
 Follow commands below to install unified-cache-management:
 ```bash
-git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
+# Replace <branch_or_tag_name> with the branch or tag name needed
+git clone --depth 1 --branch <branch_or_tag_name> https://github.com/ModelEngine-Group/unified-cache-management.git
 cd unified-cache-management
+export PLATFORM=ascend
 pip install -v -e .
 cd ..
 ```
@@ -53,15 +55,18 @@ cd ..
 ## Setup from docker
 Download the pre-built docker image provided or build unified-cache-management docker image by commands below:
  ```bash
- # Build docker image using source code
- git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
- cd unified-cache-management/docker
- docker build -t ucm-vllm:latest -f ./Dockerfile-NPU ./
+ # Build docker image using source code, replace <branch_or_tag_name> with the branch or tag name needed
+ git clone --depth 1 --branch <branch_or_tag_name> https://github.com/ModelEngine-Group/unified-cache-management.git
+ cd unified-cache-management
+ docker build -t ucm-vllm:latest -f ./docker/Dockerfile-NPU ./
  ```
   Then run your container using following command. You can add or remove Docker parameters as needed.
 ```bash
-# Use `--ipc=host` to make sure the shared memory is large enough.
+# Update DEVICE according to your device (/dev/davinci[0-7])
+export DEVICE=/dev/davinci7
+# Update the vllm-ascend image
 docker run --rm \
+    --network=host \
     --device $DEVICE \
     --device /dev/davinci_manager \
     --device /dev/devmm_svm \
