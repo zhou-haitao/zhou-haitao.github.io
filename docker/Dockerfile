@@ -14,11 +14,10 @@ ENV VLLM_USE_PRECOMPILED=1
 RUN VLLM_TARGET_DEVICE=cuda pip install -v -e /vllm-workspace/vllm --extra-index=https://download.pytorch.org/whl/nightly/cu128
 
 # Install unified-cache-management
-ARG UCM_REPO=https://github.com/ModelEngine-Group/unified-cache-management.git
-ARG UCM_BRANCH=develop
-RUN git clone --depth 1 $UCM_REPO --branch $UCM_BRANCH /vllm-workspace/unified-cache-management
+COPY . /vllm-workspace/unified-cache-management
 
-RUN pip install -v -e /vllm-workspace/unified-cache-management
+RUN export PLATFORM="cuda" && \
+     pip install -v -e /vllm-workspace/unified-cache-management
 
 # Apply patch for vLLM
 RUN cd /vllm-workspace/vllm \

@@ -8,7 +8,7 @@
 ---
 
 *Latest News* 🔥
-- [2025/07/30] We are excited to announce the alpha release of Unified Cache Manager.
+- [2025/08/01] We are excited to announce the alpha release of Unified Cache Manager.
 
 ---
 

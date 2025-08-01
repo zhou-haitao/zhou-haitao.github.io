@@ -35,7 +35,8 @@ Refer to [Set up using docker](https://docs.vllm.ai/en/latest/getting_started/in
 ### Build from source code
 Follow commands below to install unified-cache-management:
 ```bash
-git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
+# Replace <branch_or_tag_name> with the branch or tag name needed
+git clone --depth 1 --branch <branch_or_tag_name> https://github.com/ModelEngine-Group/unified-cache-management.git
 cd unified-cache-management
 pip install -v -e .
 cd ..
@@ -44,10 +45,10 @@ cd ..
 ## Setup from docker
 Download the pre-built docker image provided or build unified-cache-management docker image by commands below:
  ```bash
- # Build docker image using source code
- git clone --depth 1 --branch develop https://github.com/ModelEngine-Group/unified-cache-management.git
- cd unified-cache-management/docker
- docker build -t ucm-vllm:latest -f ./Dockerfile ./
+ # Build docker image using source code, replace <branch_or_tag_name> with the branch or tag name needed
+ git clone --depth 1 --branch <branch_or_tag_name> https://github.com/ModelEngine-Group/unified-cache-management.git
+ cd unified-cache-management
+ docker build -t ucm-vllm:latest -f ./docker/Dockerfile ./
  ```
 Then run your container using following command. You can add or remove Docker parameters as needed.
 ```bash
