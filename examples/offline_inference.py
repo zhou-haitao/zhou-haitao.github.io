@@ -30,6 +30,7 @@ def build_llm_with_uc(module_path: str, name: str, model: str):
                 "max_cache_size": 5368709120,
                 "kv_block_size": 262144,
             },
+            "ucm_sparse_method": "ESA"
         },
     )
 
@@ -66,7 +67,7 @@ def print_output(
 def main():
     module_path = "unifiedcache.integration.vllm.uc_connector"
     name = "UnifiedCacheConnectorV1"
-    model = "/home/models/Qwen2.5-14B-Instruct"
+    model = os.getenv("MODEL_PATH", "/home/models/Qwen2.5-14B-Instruct")
 
     setup_environment_variables()
 
@@ -85,7 +86,6 @@ def main():
         sampling_params = SamplingParams(temperature=0, top_p=0.95, max_tokens=100)
 
         print_output(llm, prompts, sampling_params, "first")
-        print_output(llm, prompts, sampling_params, "second")
 
 
 if __name__ == "__main__":
