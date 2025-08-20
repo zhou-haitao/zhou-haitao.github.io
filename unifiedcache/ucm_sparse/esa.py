@@ -100,7 +100,7 @@ def get_offset(block_shape, rank, tp_size, precision, layer_id, is_v, is_mla) ->
     v_offset = k_offset + k_min_data_block_size
     return v_offset if is_v else k_offset
 
-class ReqState():
+class ReqStatePerLayer():
     # handle single request per layer
     
     def __init__(self, req_meta: ReqMeta, layer_name: str, rank: int, tp_size: int, store_instance: UcmKVStoreBase):
@@ -109,7 +109,6 @@ class ReqState():
         self.block_repre: torch.Tensor = None ## shape: blks, num_key_heads_per_tp, head_size
         self.init_window: tuple[torch.Tensor, torch.Tensor] = None
         self.local_window: tuple[torch.Tensor, torch.Tensor] = None
-        self.num_tokens = 0 ## the number of all_tokens
         self.store_instance = store_instance
         self.req_meta = req_meta
         self.block_size = None
@@ -275,21 +274,11 @@ class ReqState():
     def attention_finished(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, attn_output: torch.Tensor,
                            forward_context: ForwardContext) -> None:
         self.maybe_register_kv_cache(forward_context)
-        index_in_batch = self.req_meta.index_in_batch
-        query_len = forward_context.attn_metadata.query_lens[index_in_batch]
-
-        if self.req_meta.stage == SequenceStage.PREFILL:
-            num_tokens_updated = self.num_tokens + query_len
-            num_blocks_dumped = 0 if self.block_repre is None else self.block_repre.shape[0]
-            num_full_blocks = num_tokens_updated // self.block_size
-            num_blocks_need_dump = num_full_blocks - num_blocks_dumped
-            self.num_tokens = num_tokens_updated
-        else:
-            assert query_len == 1, "ESA doesn't support spec_decode now"
-            is_last_slot = (self.req_meta.num_sparsed_tokens % self.block_size) == 0
-            num_blocks_need_dump = 1 if is_last_slot else 0
+        num_tokens_updated = self.req_meta.num_computed_tokens + self.req_meta.num_scheduled_tokens
+        num_blocks_dumped = 0 if self.block_repre is None else self.block_repre.shape[0]
+        num_full_blocks = num_tokens_updated // self.block_size
+        num_blocks_need_dump = num_full_blocks - num_blocks_dumped
         self.save_blocks(num_blocks_need_dump)
-
         if self.req_meta.stage == SequenceStage.PREFILL and self.req_meta.is_last_chunk:
             self.construct_init_and_local_window()
             self.wait_for_task_done()
@@ -298,7 +287,7 @@ class ESA(UcmSparseBase):
     # handle batch
     def __init__(self, vllm_config: VllmConfig, role: UcmSparseRole):
         super().__init__(vllm_config, role)
-        self.req_states: dict[str, ReqState] = {}
+        self.req_states: dict[str, ReqStatePerLayer] = {}
         self.rank = vllm_config.parallel_config.rank
         self.tp_size = vllm_config.parallel_config.tensor_parallel_size
         config = {'max_cache_size': 5368709120, 'device': self.rank, 'role': 'worker'}
@@ -307,9 +296,9 @@ class ESA(UcmSparseBase):
     def attention_begin(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
                         layer_name: str, forward_context: ForwardContext) -> None:
         for req_meta in self._sparse_metadata.requests:
-            req_state_hash = ReqState.req_state_hash(req_meta.request_id, layer_name)
+            req_state_hash = ReqStatePerLayer.req_state_hash(req_meta.request_id, layer_name)
             if req_state_hash not in self.req_states:
-                self.req_states[req_state_hash] = ReqState(req_meta, layer_name, self.rank, self.tp_size, self.connector)
+                self.req_states[req_state_hash] = ReqStatePerLayer(req_meta, layer_name, self.rank, self.tp_size, self.connector)
             req_state = self.req_states[req_state_hash]
             req_state.update_meta(req_meta, forward_context)
             req_state.attention_begin(query, key, value, forward_context)
@@ -317,9 +306,9 @@ class ESA(UcmSparseBase):
     def attention_finished(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, attn_output: torch.Tensor,
                            layer_name: str, forward_context: ForwardContext) -> None:
         for req_meta in self._sparse_metadata.requests:
-            req_state_hash = ReqState.req_state_hash(req_meta.request_id, layer_name)
+            req_state_hash = ReqStatePerLayer.req_state_hash(req_meta.request_id, layer_name)
             if req_state_hash not in self.req_states:
-                self.req_states[req_state_hash] = ReqState(req_meta, layer_name, self.rank, self.tp_size, self.connector)
+                self.req_states[req_state_hash] = ReqStatePerLayer(req_meta, layer_name, self.rank, self.tp_size, self.connector)
             req_state = self.req_states[req_state_hash]
             req_state.update_meta(req_meta, forward_context)
             req_state.attention_finished(query, key, value, attn_output, forward_context)    
