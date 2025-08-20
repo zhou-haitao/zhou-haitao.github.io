@@ -211,7 +211,7 @@ class ReqState():
             vllm_block_ids_dump = vllm_block_ids[num_blocks_dumped:num_blocks_dumped+num_blocks_need_dump]
         else:
             # TODO: handle spec_decode here
-            vllm_block_ids_dump = vllm_block_ids[-1]
+            vllm_block_ids_dump = vllm_block_ids[-1:]
         self.launch_transfer_task("dump", block_hashes, vllm_block_ids_dump)
         repre = self.extract_block_repre(vllm_block_ids_dump)
         # TODO: pre-allocate can speed up here
