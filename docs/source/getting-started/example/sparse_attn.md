@@ -23,7 +23,7 @@ kv_connector_extra_config={
 
 ### Offline Inference
 
-To start **offline inference** with the NFS connector，modify the script `examples/offline_inference.py` to include the `ucm_sparse_method` and put a long prompt to see the acceleration effect:
+To start **offline inference** with the NFS connector，modify the script `examples/offline_inference.py` to include the `ucm_sparse_method` and put a long prompt to see the acceleration effects:
 
 ```python
 # In examples/offline_inference.py
@@ -40,7 +40,7 @@ ktc = KVTransferConfig(
 )
 
 prompts = [
-    "PUT A LONG PROMPT HERE TO SEE ACCELERATION EFFECT."
+    "PUT A LONG PROMPT HERE TO SEE ACCELERATION EFFECTS."
 ]
 ```
 
@@ -75,7 +75,7 @@ vllm serve /home/models/Qwen2.5-14B-Instruct \
             "storage_backends": "/mnt/test",
             "kv_block_size": 33554432
         },
-        "ucm_sparse_method": "GSA"
+        "ucm_sparse_method": "ESA"
     }
 }'
 ```
@@ -97,7 +97,7 @@ curl http://localhost:7800/v1/completions \
     -H "Content-Type: application/json" \
     -d '{
         "model": "/home/models/Qwen2.5-14B-Instruct",
-        "prompt": "PUT A LONG PROMPT HERE TO SEE ACCELERATION EFFECT.",
+        "prompt": "PUT A LONG PROMPT HERE TO SEE ACCELERATION EFFECTS.",
         "max_tokens": 100,
         "temperature": 0
     }'

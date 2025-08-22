@@ -86,6 +86,7 @@ def main():
         sampling_params = SamplingParams(temperature=0, top_p=0.95, max_tokens=100)
 
         print_output(llm, prompts, sampling_params, "first")
+        print_output(llm, prompts, sampling_params, "second")
 
 
 if __name__ == "__main__":
