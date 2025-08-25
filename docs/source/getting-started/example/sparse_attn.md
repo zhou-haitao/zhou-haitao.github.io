@@ -15,7 +15,7 @@ kv_connector_extra_config={
         "max_cache_size": 5368709120,
         "kv_block_size": 262144,
     },
-    "ucm_sparse_method": "ESA" # specify the sparse atention algorithm here
+    "ucm_sparse_method": "ESA" # specify the sparse attention algorithm here
 }
 ```
 
@@ -35,7 +35,7 @@ ktc = KVTransferConfig(
         "max_cache_size": 5368709120,
         "kv_block_size": 262144,
     },
-    "ucm_sparse_method": "ESA" # specify the sparse atention algorithm here
+    "ucm_sparse_method": "ESA" # specify the sparse attention algorithm here
   }
 )
 
