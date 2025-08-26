@@ -126,7 +126,6 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         self.save_paras: dict[str, SavePara] = {}
         # dump tasks record request -> block -> list[task]
         self.dump_tasks: dict[str, dict[str, List[Task]]] = {}
-        self.load_tasks: dict[str, tuple[Task, Task]] = {}
         self.layerwise_load_tasks: dict[str, dict[str, tuple[Task, Task]]] = {}
         self.is_mla = self._vllm_config.model_config.is_deepseek_mla
         self.num_layers = vllm_config.model_config.get_num_layers(
@@ -184,7 +183,6 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
     def DataOffset(self, kv_layer, rank, layer_id, is_v):
         # Non-MLA scene: one layer shape is (2, num_blocks, block_size, num_kv_heads, head_size)
         # MLA scene: one layer shape is (num_blocks, block_size, head_size)
-        # TODO MLA adapt
         # Element size
         elem_size = kv_layer[0].storage().element_size()
         logger.debug(
