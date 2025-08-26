@@ -703,8 +703,6 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
     ) -> tuple[bool, Optional[dict[str, Any]]]:
         # clear save_paras for request
         save_paras = self.save_paras.pop(request.request_id, None)
-        # clear load_tasks for request
-        self.load_tasks.pop(request.request_id, None)
         if hasattr(request, "succeed_dumped_blocks") and request.succeed_dumped_blocks:
             self.connector.commit(request.succeed_dumped_blocks, True)
         if save_paras is not None:
