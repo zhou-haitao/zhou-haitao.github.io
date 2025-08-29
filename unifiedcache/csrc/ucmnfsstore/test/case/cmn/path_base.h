@@ -21,33 +21,36 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  * */
-#ifndef UNIFIEDCACHE_SIMU_DEVICE_H
-#define UNIFIEDCACHE_SIMU_DEVICE_H
+#ifndef UNIFIEDCACHE_TEST_PATH_BASE_H
+#define UNIFIEDCACHE_TEST_PATH_BASE_H
 
-#include "ibuffered_device.h"
-#include "thread/thread_pool.h"
+#include <gtest/gtest.h>
+#include "random.h"
 
 namespace UC {
 
-class SimuDevice : public IBufferedDevice {
-    using Task = std::function<void(void)>;
-
+class PathBase : public ::testing::Test {
 public:
-    SimuDevice(const int32_t deviceId, const size_t bufferSize, const size_t bufferNumber)
-        : IBufferedDevice{bufferSize, bufferNumber}, _deviceId{deviceId}
+    void SetUp() override
     {
+        testing::Test::SetUp();
+        const auto info = testing::UnitTest::GetInstance()->current_test_info();
+        std::string testCaceName = info->test_case_name();
+        std::string testName = info->name();
+        this->_path = "./" + testCaceName + "_" + testName + "_" + this->_rd.RandomString(20) + "/";
+        system((std::string("rm -rf ") + this->_path).c_str());
+        system((std::string("mkdir -p ") + this->_path).c_str());
     }
-    Status Setup() override;
-    Status H2DAsync(std::byte* dst, const std::byte* src, const size_t count) override;
-    Status D2HAsync(std::byte* dst, const std::byte* src, const size_t count) override;
-    Status AppendCallback(std::function<void(bool)> cb) override;
-
-protected:
-    std::shared_ptr<std::byte> MakeBuffer(const size_t size) override;
+    void TearDown() override
+    {
+        system((std::string("rm -rf ") + this->_path).c_str());
+        testing::Test::TearDown();
+    }
+    std::string Path() const { return this->_path; }
 
 private:
-    int32_t _deviceId;
-    ThreadPool<Task> _backend;
+    Random _rd;
+    std::string _path;
 };
 
 } // namespace UC

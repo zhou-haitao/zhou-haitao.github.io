@@ -21,33 +21,27 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  * */
-#ifndef UNIFIEDCACHE_SIMU_DEVICE_H
-#define UNIFIEDCACHE_SIMU_DEVICE_H
+#ifndef UNIFIEDCACHE_TEST_RANDOM_H
+#define UNIFIEDCACHE_TEST_RANDOM_H
 
-#include "ibuffered_device.h"
-#include "thread/thread_pool.h"
+#include <random>
 
 namespace UC {
 
-class SimuDevice : public IBufferedDevice {
-    using Task = std::function<void(void)>;
-
+class Random {
 public:
-    SimuDevice(const int32_t deviceId, const size_t bufferSize, const size_t bufferNumber)
-        : IBufferedDevice{bufferSize, bufferNumber}, _deviceId{deviceId}
+    std::string RandomString(const size_t length)
     {
+        const std::string allowedChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+        std::mt19937 gen(this->_rd());
+        std::uniform_int_distribution<> dis(0, allowedChars.length() - 1);
+        std::string randomString(length, 0);
+        for (size_t i = 0; i < length; i++) { randomString[i] = allowedChars[dis(gen)]; }
+        return randomString;
     }
-    Status Setup() override;
-    Status H2DAsync(std::byte* dst, const std::byte* src, const size_t count) override;
-    Status D2HAsync(std::byte* dst, const std::byte* src, const size_t count) override;
-    Status AppendCallback(std::function<void(bool)> cb) override;
-
-protected:
-    std::shared_ptr<std::byte> MakeBuffer(const size_t size) override;
 
 private:
-    int32_t _deviceId;
-    ThreadPool<Task> _backend;
+    std::random_device _rd;
 };
 
 } // namespace UC
