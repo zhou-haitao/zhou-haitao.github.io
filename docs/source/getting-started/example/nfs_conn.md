@@ -81,7 +81,9 @@ vllm serve /home/models/Qwen2.5-14B-Instruct \
         "ucm_connector_name": "UcmNfsStore",
         "ucm_connector_config": {
             "storage_backends": "/mnt/test",
-            "kv_block_size": 33554432
+            "kv_block_size": 33554432,
+            "transferStreamNumber":16,
+            "transferIoSize":131072
         }
     }
 }'
