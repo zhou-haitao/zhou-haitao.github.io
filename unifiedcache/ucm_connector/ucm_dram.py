@@ -66,16 +66,16 @@ class UcmDram(UcmKVStoreBase):
         if config["role"] == "scheduler":
             self.cached_blocks = set()
 
-    def create(self, block_ids: List[str]) -> int:
+    def create(self, block_ids: List[str]) -> List[int]:
         """
-        create kv cache space in storafe
+        create kv cache space in storage
 
         Args:
             block_ids (List[str]): vLLM block hash.
         Returns:
             success mask
         """
-        return SUCCESS
+        return [SUCCESS] * len(block_ids)
 
     def lookup(self, block_ids: List[str]) -> List[bool]:
         """
