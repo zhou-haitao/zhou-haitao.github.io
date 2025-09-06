@@ -26,7 +26,7 @@
 import hashlib
 import pickle
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generator, List, Optional
+from typing import TYPE_CHECKING, Any, Generator, List, Optional, Union
 
 import torch
 from vllm.config import VllmConfig
@@ -88,6 +88,8 @@ class ReqMeta:
     load_paras: Optional[LoadPara] = None
     # Save information
     save_paras: Optional[SavePara] = None
+    # Mark request which need load async
+    load_async: bool = False
 
 
 @dataclass
@@ -103,6 +105,7 @@ class UCConnectorV1Metadata(KVConnectorMetadata):
         vllm_block_ids: list[int],
         load_paras: Optional[LoadPara] = None,
         save_paras: Optional[SavePara] = None,
+        load_async: bool = False,
     ) -> None:
         self.requests.append(
             ReqMeta(
@@ -110,6 +113,7 @@ class UCConnectorV1Metadata(KVConnectorMetadata):
                 vllm_block_ids=vllm_block_ids,
                 load_paras=load_paras,
                 save_paras=save_paras,
+                load_async=load_async,
             )
         )
 
@@ -136,6 +140,7 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         )
         self.element_size = vllm_config.model_config.dtype.itemsize
         self.kv_role = vllm_config.kv_transfer_config.kv_role
+        self._need_load_reqs: dict[str, Union[list[int], list[Task]]] = {}
         if (
             self._vllm_config.kv_transfer_config is not None
             and "ucm_connector_name"
@@ -326,35 +331,41 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
                 tensors, offsets = self.get_tensor_and_offset_layerwise(
                     fetch_block_ids, kv_layer, layer_name
                 )
-                if not self.use_layerwise:
-                    task = self.connector.load(
-                        fetch_block_hashes, offsets[:blocks_len], tensors[:blocks_len]
+                k_task_id = self.connector.load(
+                    fetch_block_hashes, offsets[:blocks_len], tensors[:blocks_len]
+                )
+                v_task_id = None
+                if not self.is_mla:
+                    v_task_id = self.connector.load(
+                        fetch_block_hashes,
+                        offsets[blocks_len:],
+                        tensors[blocks_len:],
                     )
-                    assert self.connector.wait(task) == 0
+                if request.request_id not in self.layerwise_load_tasks:
+                    self.layerwise_load_tasks[request.request_id] = {}
+                self.layerwise_load_tasks[request.request_id][layer_name] = (
+                    k_task_id,
+                    v_task_id,
+                )
+
+            if request.load_async:
+                for _, (k_task, v_task) in self.layerwise_load_tasks[
+                    request.request_id
+                ].items():
+                    if request.request_id not in self._need_load_reqs:
+                        self._need_load_reqs[request.request_id] = []
+                    self._need_load_reqs[request.request_id].append(k_task)
                     if not self.is_mla:
-                        task = self.connector.load(
-                            fetch_block_hashes,
-                            offsets[blocks_len:],
-                            tensors[blocks_len:],
-                        )
-                        assert self.connector.wait(task) == 0
-                else:
-                    k_task_id = self.connector.load(
-                        fetch_block_hashes, offsets[:blocks_len], tensors[:blocks_len]
-                    )
-                    v_task_id = None
+                        self._need_load_reqs[request.request_id].append(v_task)
+                continue
+
+            if not self.use_layerwise:
+                for _, (k_task, v_task) in self.layerwise_load_tasks[
+                    request.request_id
+                ].items():
+                    assert self.connector.wait(k_task) == 0
                     if not self.is_mla:
-                        v_task_id = self.connector.load(
-                            fetch_block_hashes,
-                            offsets[blocks_len:],
-                            tensors[blocks_len:],
-                        )
-                    if request.request_id not in self.layerwise_load_tasks:
-                        self.layerwise_load_tasks[request.request_id] = {}
-                    self.layerwise_load_tasks[request.request_id][layer_name] = (
-                        k_task_id,
-                        v_task_id,
-                    )
+                        assert self.connector.wait(v_task) == 0
 
     def wait_for_layer_load(self, layer_name: str) -> None:
         """
@@ -415,7 +426,7 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         assert attn_metadata is not None, "The attn_metadata should not be None."
 
         for request in metadata.requests:
-            if request.save_paras is None:
+            if request.save_paras is None or request.load_async:
                 continue
 
             save_param = request.save_paras
@@ -535,6 +546,30 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         self.dump_tasks.clear()
         return success_dumped_blocks if success_dumped_blocks else None
 
+    def get_finished(self, finished_req_ids: set[str]) -> tuple[set[str], set[str]]:
+        """Get the finished recving and sending requests."""
+        done_recving: set[str] = set()
+        for req_id, tasks in self._need_load_reqs.items():
+            unfinished_tasks = []
+            for task in tasks:
+                ret = self.connector.check(task)
+                if ret == 0:
+                    # Remove this assertion after support recompute load failed reqs
+                    assert self.connector.wait(task) == 0
+                    continue
+                if ret != -1:
+                    raise ValueError(f"Task {task.get_id()} Not Found")
+                unfinished_tasks.append(task)
+            if not unfinished_tasks:
+                done_recving.add(req_id)
+            self._need_load_reqs[req_id] = unfinished_tasks
+
+        # remove the finished requests
+        for req_id in list(done_recving):
+            self._need_load_reqs.pop(req_id, None)
+
+        return None, done_recving
+
     # ==============================
     # Scheduler-side methods
     # ==============================
@@ -588,6 +623,12 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
             can_load=False,
         )
 
+        need_load_tokens = max(num_external_computed_tokens - num_computed_tokens, 0)
+        if hasattr(self, "kv_role") and self.kv_role == "kv_consumer":
+            if need_load_tokens > 0:
+                self._need_load_reqs[request.request_id] = []
+                return need_load_tokens, True
+
         num_max_cached_tokens = max(num_external_computed_tokens, num_computed_tokens)
         num_blocks_need_save = (
             len(request.all_token_ids) - num_max_cached_tokens
@@ -608,7 +649,7 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
             f"num_computed_tokens = {num_computed_tokens}.\n"
         )
 
-        return max(num_external_computed_tokens - num_computed_tokens, 0), False
+        return need_load_tokens, False
 
     def update_state_after_alloc(
         self, request: "Request", blocks: "KVCacheBlocks", num_external_tokens: int
@@ -623,6 +664,12 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
         if num_external_tokens > 0:
             self.load_paras[request.request_id].can_load = True
 
+        if request.request_id in self._need_load_reqs:
+            local_block_ids = (
+                blocks.get_unhashed_block_ids() if num_external_tokens > 0 else []
+            )
+            self._need_load_reqs[request.request_id] = local_block_ids
+
     def build_connector_meta(
         self, scheduler_output: SchedulerOutput
     ) -> KVConnectorMetadata:
@@ -636,6 +683,16 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
             scheduler_output (SchedulerOutput): the scheduler output object.
         """
         meta = UCConnectorV1Metadata()
+
+        for req_id, block_ids in self._need_load_reqs.items():
+            meta.add_request(
+                req_id,
+                vllm_block_ids=block_ids,
+                load_paras=self.load_paras[req_id],
+                load_async=True,
+            )
+        self._need_load_reqs.clear()
+
         for new_req in scheduler_output.scheduled_new_reqs:
             # Load kv is only supported for new reqs
             new_scheduled_blocks = (
