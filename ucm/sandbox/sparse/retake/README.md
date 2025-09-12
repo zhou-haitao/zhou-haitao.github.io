@@ -9,7 +9,7 @@
 ---
 
 ## 🔍 Overview  
-**AdaReTaKe** is an advanced video compression framework designed for Multimodal Large Language Models (MLLMs). By adaptively reducing uneven visual redundancy across timestamps and model layers, it:  
+**AdaReTaKe** is an advanced video compression framework designed for Multimodal Large Language Models (MLLMs). By adaptively reducing uneven visual redundancy across timestamps and model layers, it:   
 ✅ **Extends context capacity** from 256 to **2048 frames**  
 ✅ **Theoretically minimizes compression loss** via adaptive ratio allocation  
 ✅ **Outperforms SOTA** by **+2.3% (7B)** and **+2.8% (72B)** on four benchmarks  
