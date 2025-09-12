@@ -1,35 +1,33 @@
 import math
-from tqdm import tqdm
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss
-import numpy as np
-
+from tqdm import tqdm
+from transformers import Qwen2VLConfig
 from transformers.cache_utils import Cache
+from transformers.models.qwen2_vl.modeling_qwen2_vl import (
+    Qwen2VLCausalLMOutputWithPast,
+    Qwen2VLForConditionalGeneration,
+    Qwen2VLSdpaAttention,
+    apply_multimodal_rotary_pos_emb,
+    repeat_kv,
+)
 from transformers.utils import (
     is_flash_attn_2_available,
     logging,
 )
-from transformers import Qwen2VLConfig
-from transformers.models.qwen2_vl.modeling_qwen2_vl import (
-    Qwen2VLSdpaAttention,
-    Qwen2VLCausalLMOutputWithPast,
-    Qwen2VLForConditionalGeneration,
-    repeat_kv,
-    apply_multimodal_rotary_pos_emb,
-)
 
-from .visual_compression import *
 from .longvideo_cache import *
+from .visual_compression import *
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
-
     from transformers.modeling_flash_attention_utils import _flash_attention_forward
 else:
     flash_attn_varlen_func = None
@@ -48,7 +46,9 @@ def retake_Qwen2VLAttention_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[
+        Tuple[torch.Tensor, torch.Tensor]
+    ] = None,  # will become mandatory in v4.46
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     bsz, q_len, _ = hidden_states.size()
 
@@ -56,21 +56,29 @@ def retake_Qwen2VLAttention_forward(
     key_states = self.k_proj(hidden_states)
     value_states = self.v_proj(hidden_states)
 
-    query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-    key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+    query_states = query_states.view(
+        bsz, q_len, self.num_heads, self.head_dim
+    ).transpose(1, 2)
+    key_states = key_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
+    value_states = value_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
 
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
         kv_seq_len += cache_position[0] + 1
 
     # Update position_ids if positional embeddings are reforged
-    if past_key_value is not None and getattr(past_key_value, "pos_embed_reforge", False):
+    if past_key_value is not None and getattr(
+        past_key_value, "pos_embed_reforge", False
+    ):
         prev_tempo_idx = past_key_value.get_prev_temporal_idx(self.layer_idx)
-        if prev_tempo_idx + 1 != position_ids[0,0,0]:
+        if prev_tempo_idx + 1 != position_ids[0, 0, 0]:
             assert bsz == 1
             # print("Discontinuous positional ids %d + 1 != %d at layer %d" % (prev_tempo_idx,  position_ids[0,0,0], self.layer_idx))
-            position_ids[0,0,:] += prev_tempo_idx + 1 - position_ids[0,0,0]
+            position_ids[0, 0, :] += prev_tempo_idx + 1 - position_ids[0, 0, 0]
 
     # NOTE: Compute position_ids internally to support positional id reforge from KV compression
     cos, sin = self.rotary_emb(value_states, position_ids)
@@ -79,17 +87,31 @@ def retake_Qwen2VLAttention_forward(
     )
 
     if past_key_value is not None:
-        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+        cache_kwargs = {
+            "sin": sin,
+            "cos": cos,
+            "cache_position": cache_position,
+        }  # Specific to RoPE models
         # Specific to KVCache compression methods
-        cache_kwargs.update({"query_states": query_states, "position_ids": position_ids, 
-                             "rotary_emb": self.rotary_emb, "mrope_section": self.rope_scaling["mrope_section"]})
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        cache_kwargs.update(
+            {
+                "query_states": query_states,
+                "position_ids": position_ids,
+                "rotary_emb": self.rotary_emb,
+                "mrope_section": self.rope_scaling["mrope_section"],
+            }
+        )
+        key_states, value_states = past_key_value.update(
+            key_states, value_states, self.layer_idx, cache_kwargs
+        )
 
     # repeat k/v heads if n_kv_heads < n_heads
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(
+        self.head_dim
+    )
 
     if attention_mask is not None:  # no matter the length, we just slice it
         causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
@@ -98,11 +120,17 @@ def retake_Qwen2VLAttention_forward(
     # Fix precision issues in Qwen2-VL float16 inference
     # Replace inf values with zeros in attention weights to prevent NaN propagation
     if query_states.dtype == torch.float16:
-        attn_weights = torch.where(torch.isinf(attn_weights), torch.zeros_like(attn_weights), attn_weights)
+        attn_weights = torch.where(
+            torch.isinf(attn_weights), torch.zeros_like(attn_weights), attn_weights
+        )
 
     # upcast attention to fp32
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-    attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+        query_states.dtype
+    )
+    attn_weights = nn.functional.dropout(
+        attn_weights, p=self.attention_dropout, training=self.training
+    )
     attn_output = torch.matmul(attn_weights, value_states)
 
     if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
@@ -131,7 +159,9 @@ def retake_Qwen2VLSdpaAttention_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[
+        Tuple[torch.Tensor, torch.Tensor]
+    ] = None,  # will become mandatory in v4.46
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     if output_attentions:
         # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
@@ -155,21 +185,29 @@ def retake_Qwen2VLSdpaAttention_forward(
     key_states = self.k_proj(hidden_states)
     value_states = self.v_proj(hidden_states)
 
-    query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-    key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+    query_states = query_states.view(
+        bsz, q_len, self.num_heads, self.head_dim
+    ).transpose(1, 2)
+    key_states = key_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
+    value_states = value_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
 
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
         kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
 
     # Update position_ids if positional embeddings are reforged
-    if past_key_value is not None and getattr(past_key_value, "pos_embed_reforge", False):
+    if past_key_value is not None and getattr(
+        past_key_value, "pos_embed_reforge", False
+    ):
         prev_tempo_idx = past_key_value.get_prev_temporal_idx(self.layer_idx)
-        if prev_tempo_idx + 1 != position_ids[0,0,0]:
+        if prev_tempo_idx + 1 != position_ids[0, 0, 0]:
             assert bsz == 1
             # print("Discontinuous positional ids %d + 1 != %d at layer %d" % (prev_tempo_idx,  position_ids[0,0,0], self.layer_idx))
-            position_ids[0,0,:] += prev_tempo_idx + 1 - position_ids[0,0,0]
+            position_ids[0, 0, :] += prev_tempo_idx + 1 - position_ids[0, 0, 0]
 
     # NOTE: Compute position_ids internally to support positional id reforge from KV compression
     cos, sin = self.rotary_emb(value_states, position_ids)
@@ -179,11 +217,23 @@ def retake_Qwen2VLSdpaAttention_forward(
     )
 
     if past_key_value is not None:
-        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+        cache_kwargs = {
+            "sin": sin,
+            "cos": cos,
+            "cache_position": cache_position,
+        }  # Specific to RoPE models
         # Specific to KVCache compression methods
-        cache_kwargs.update({"query_states": query_states, "position_ids": position_ids, 
-                             "rotary_emb": self.rotary_emb, "mrope_section": self.rope_scaling["mrope_section"]})
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        cache_kwargs.update(
+            {
+                "query_states": query_states,
+                "position_ids": position_ids,
+                "rotary_emb": self.rotary_emb,
+                "mrope_section": self.rope_scaling["mrope_section"],
+            }
+        )
+        key_states, value_states = past_key_value.update(
+            key_states, value_states, self.layer_idx, cache_kwargs
+        )
 
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
@@ -230,7 +280,9 @@ def retake_Qwen2VLFlashAttention2_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+    position_embeddings: Optional[
+        Tuple[torch.Tensor, torch.Tensor]
+    ] = None,  # will become mandatory in v4.46
 ):
     bsz, q_len, _ = hidden_states.size()
 
@@ -238,9 +290,15 @@ def retake_Qwen2VLFlashAttention2_forward(
     key_states = self.k_proj(hidden_states)
     value_states = self.v_proj(hidden_states)
 
-    query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-    key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-    value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+    query_states = query_states.view(
+        bsz, q_len, self.num_heads, self.head_dim
+    ).transpose(1, 2)
+    key_states = key_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
+    value_states = value_states.view(
+        bsz, q_len, self.num_key_value_heads, self.head_dim
+    ).transpose(1, 2)
 
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
@@ -253,12 +311,14 @@ def retake_Qwen2VLFlashAttention2_forward(
         kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
 
     # Update position_ids if positional embeddings are reforged
-    if past_key_value is not None and getattr(past_key_value, "pos_embed_reforge", False):
+    if past_key_value is not None and getattr(
+        past_key_value, "pos_embed_reforge", False
+    ):
         prev_tempo_idx = past_key_value.get_prev_temporal_idx(self.layer_idx)
-        if prev_tempo_idx + 1 != position_ids[0,0,0]:
+        if prev_tempo_idx + 1 != position_ids[0, 0, 0]:
             assert bsz == 1
             # print("Discontinuous positional ids %d + 1 != %d at layer %d" % (prev_tempo_idx,  position_ids[0,0,0], self.layer_idx))
-            position_ids[0,0,:] += prev_tempo_idx + 1 - position_ids[0,0,0]
+            position_ids[0, 0, :] += prev_tempo_idx + 1 - position_ids[0, 0, 0]
 
     # NOTE: Compute position_ids internally to support positional id reforge from KV compression
     cos, sin = self.rotary_emb(value_states, position_ids)
@@ -292,13 +352,27 @@ def retake_Qwen2VLFlashAttention2_forward(
 
             if attention_mask is not None:
                 attention_mask = attention_mask[:, slicing_tokens:]
-                attention_mask = torch.cat([attention_mask, torch.ones_like(attention_mask[:, -1:])], dim=-1)
+                attention_mask = torch.cat(
+                    [attention_mask, torch.ones_like(attention_mask[:, -1:])], dim=-1
+                )
 
-        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+        cache_kwargs = {
+            "sin": sin,
+            "cos": cos,
+            "cache_position": cache_position,
+        }  # Specific to RoPE models
         # Specific to KVCache compression methods
-        cache_kwargs.update({"query_states": query_states, "position_ids": position_ids, 
-                             "rotary_emb": self.rotary_emb, "mrope_section": self.rope_scaling["mrope_section"]})
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        cache_kwargs.update(
+            {
+                "query_states": query_states,
+                "position_ids": position_ids,
+                "rotary_emb": self.rotary_emb,
+                "mrope_section": self.rope_scaling["mrope_section"],
+            }
+        )
+        key_states, value_states = past_key_value.update(
+            key_states, value_states, self.layer_idx, cache_kwargs
+        )
 
     # repeat k/v heads if n_kv_heads < n_heads
     key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -364,7 +438,7 @@ def retake_Qwen2VLFlashAttention2_forward(
 
 
 def retake_Qwen2VLForConditionalGeneration_compress_video_tokens(
-    self, 
+    self,
     input_ids: torch.LongTensor = None,
     attention_mask: torch.Tensor = None,
     video_embeds: torch.Tensor = None,
@@ -376,9 +450,13 @@ def retake_Qwen2VLForConditionalGeneration_compress_video_tokens(
     # Parse long video compression configs
     visual_compression = False
     if getattr(self.config, "longvideo_kwargs", None) is not None:
-        visual_compression = self.config.longvideo_kwargs.get("visual_compression", False)
+        visual_compression = self.config.longvideo_kwargs.get(
+            "visual_compression", False
+        )
         if visual_compression:
-            compression_kwargs = self.config.longvideo_kwargs['visual_compression_kwargs']
+            compression_kwargs = self.config.longvideo_kwargs[
+                "visual_compression_kwargs"
+            ]
             compression_ratio = compression_kwargs.get("compression_ratio")
             compression_method = compression_kwargs.get("compression_method")
             patch_sync = compression_kwargs.get("patch_sync")
@@ -386,7 +464,9 @@ def retake_Qwen2VLForConditionalGeneration_compress_video_tokens(
 
     if visual_compression:
         assert labels is None
-        assert video_grid_thw.shape[0] <= 1, "Currently, interleaved videos are not supported"
+        assert (
+            video_grid_thw.shape[0] <= 1
+        ), "Currently, interleaved videos are not supported"
         assert input_ids.shape[0] == 1, "Currently, only inference are supported"
         video_token_indices = torch.where(input_ids[0] == self.config.video_token_id)[0]
         s_index, e_index = video_token_indices[0], video_token_indices[-1]
@@ -400,16 +480,22 @@ def retake_Qwen2VLForConditionalGeneration_compress_video_tokens(
         # Compress
         compressed_memory_bank = video_embeds.reshape(1, grid_t, grid_hw, -1)
         if compression_method == "MA-LLM":
-            compression_size = torch.ones_like(compressed_memory_bank[:,:,:,0])
+            compression_size = torch.ones_like(compressed_memory_bank[:, :, :, 0])
             while compressed_memory_bank.shape[1] > tgt_mem_len:
-                compressed_memory_bank, compression_size = memory_bank_compress_MALLM(compressed_memory_bank, compression_size, sync=patch_sync)
+                compressed_memory_bank, compression_size = memory_bank_compress_MALLM(
+                    compressed_memory_bank, compression_size, sync=patch_sync
+                )
             keypatches_mask = None
         elif compression_method == "MA-LLM-hard":
             while compressed_memory_bank.shape[1] > tgt_mem_len:
-                compressed_memory_bank = memory_bank_compress_MALLM_hard(compressed_memory_bank, sync=patch_sync)
+                compressed_memory_bank = memory_bank_compress_MALLM_hard(
+                    compressed_memory_bank, sync=patch_sync
+                )
             keypatches_mask = None
         elif compression_method == "Keyframe":
-            compressed_memory_bank, keypatches_mask = memory_bank_compress_keyframe(compressed_memory_bank, tgt_mem_len, 3, sync=patch_sync)
+            compressed_memory_bank, keypatches_mask = memory_bank_compress_keyframe(
+                compressed_memory_bank, tgt_mem_len, 3, sync=patch_sync
+            )
             keypatches_mask = keypatches_mask if return_keyframe_mask else None
         else:
             raise NotImplementedError
@@ -417,35 +503,48 @@ def retake_Qwen2VLForConditionalGeneration_compress_video_tokens(
         tgt_seq_len = video_embeds.shape[0]
 
         # Reforge the input
-        input_ids = torch.cat([
-            input_ids[:, :s_index],
-            input_ids[:, s_index:e_index+1][:,:tgt_seq_len],
-            input_ids[:, e_index+1:]
+        input_ids = torch.cat(
+            [
+                input_ids[:, :s_index],
+                input_ids[:, s_index : e_index + 1][:, :tgt_seq_len],
+                input_ids[:, e_index + 1 :],
             ],
-            dim=1)
+            dim=1,
+        )
         num_token_diff = ori_seq_len - input_ids.shape[1]
         if num_token_diff and attention_mask is not None:
             attention_mask = attention_mask[:, :-num_token_diff]
         if num_token_diff and cache_position is not None:
             cache_position = cache_position[:-num_token_diff]
         if position_ids is not None:
-            position_ids = torch.cat([
-                position_ids[..., :s_index],
-                position_ids[..., s_index:e_index+1][...,:tgt_seq_len],
-                position_ids[..., e_index+1:]
+            position_ids = torch.cat(
+                [
+                    position_ids[..., :s_index],
+                    position_ids[..., s_index : e_index + 1][..., :tgt_seq_len],
+                    position_ids[..., e_index + 1 :],
                 ],
-            dim=2)
-            position_ids[:, :, s_index+tgt_seq_len:] -= num_frame_diff
+                dim=2,
+            )
+            position_ids[:, :, s_index + tgt_seq_len :] -= num_frame_diff
     else:
         keypatches_mask = None
 
-    return input_ids, attention_mask, video_embeds, cache_position, position_ids, labels, keypatches_mask
+    return (
+        input_ids,
+        attention_mask,
+        video_embeds,
+        cache_position,
+        position_ids,
+        labels,
+        keypatches_mask,
+    )
+
 
 def retake_Qwen2VLForConditionalGeneration_segment_input_ids(self, input_ids):
     """Split video and text segments in the input_ids
     return: list[(s, e, type)], indices of [s, e) are of `type`.
     """
-    videomask = (input_ids[0] == self.config.video_token_id)
+    videomask = input_ids[0] == self.config.video_token_id
     # Find the difference between consecutive elements
     diff = torch.diff(videomask.long())
     diff_pos_indices = (torch.where(diff == 1)[0] + 1).cpu().numpy()
@@ -454,9 +553,9 @@ def retake_Qwen2VLForConditionalGeneration_segment_input_ids(self, input_ids):
     # True mask
     start_indices_true = diff_pos_indices
     end_indices_true = diff_neg_indices
-    if videomask[0] == True: # segment starts at the beginning
+    if videomask[0] == True:  # segment starts at the beginning
         start_indices_true = np.insert(start_indices_true, 0, 0)
-    if videomask[-1] == True: # segment ends at the beginning
+    if videomask[-1] == True:  # segment ends at the beginning
         end_indices_true = np.append(end_indices_true, len(videomask))
 
     # False mask
@@ -467,42 +566,69 @@ def retake_Qwen2VLForConditionalGeneration_segment_input_ids(self, input_ids):
     if videomask[-1] == False:
         end_indices_flase = np.append(end_indices_flase, len(videomask))
 
-    segments = (
-        list(zip(start_indices_true, end_indices_true, ['video']*len(end_indices_true))) + 
-        list(zip(start_indices_flase, end_indices_flase, ['text']*len(end_indices_flase)))
+    segments = list(
+        zip(start_indices_true, end_indices_true, ["video"] * len(end_indices_true))
+    ) + list(
+        zip(start_indices_flase, end_indices_flase, ["text"] * len(end_indices_flase))
     )
     segments = sorted(segments, key=lambda x: x[0])
     return segments
 
-def retake_Qwen2VLForConditionalGeneration_get_chunk_size(self, config, video_grid_thw) -> int:
+
+def retake_Qwen2VLForConditionalGeneration_get_chunk_size(
+    self, config, video_grid_thw
+) -> int:
     # Calculate the number of tokens in each prefill chunk
     chunk_frames = (
-        config.longvideo_kwargs.get('chunked_prefill_frames', None) if getattr(config, 'longvideo_kwargs', None) 
+        config.longvideo_kwargs.get("chunked_prefill_frames", None)
+        if getattr(config, "longvideo_kwargs", None)
         else None
     )
     if chunk_frames is None:
         chunk_prefill_size = None
     else:
         T, H, W = video_grid_thw[0]
-        t_factor = config.vision_config.spatial_merge_size**2 * config.vision_config.temporal_patch_size
+        t_factor = (
+            config.vision_config.spatial_merge_size**2
+            * config.vision_config.temporal_patch_size
+        )
         chunk_prefill_size = min(chunk_frames, T) * H * W // t_factor
         chunk_prefill_size = int(chunk_prefill_size.item())
         # Avoid machine error in ceil() when calculating `num_chunks`.
     return chunk_prefill_size
 
-def retake_Qwen2VLForConditionalGeneration_forge_input_chunks(self, ss, ee, modality_segments, cache_position, position_ids, attention_mask, past_key_values, inputs_embeds):
+
+def retake_Qwen2VLForConditionalGeneration_forge_input_chunks(
+    self,
+    ss,
+    ee,
+    modality_segments,
+    cache_position,
+    position_ids,
+    attention_mask,
+    past_key_values,
+    inputs_embeds,
+):
     cache_position_chunk = cache_position[:ee]
-    position_ids_chunk = position_ids[:,:,ss:ee]
-    attention_mask_chunk = attention_mask[:,:ee] # NOTE: specially from 0 to ee
-    inputs_embeds_chunk = inputs_embeds[:,ss:ee]
+    position_ids_chunk = position_ids[:, :, ss:ee]
+    attention_mask_chunk = attention_mask[:, :ee]  # NOTE: specially from 0 to ee
+    inputs_embeds_chunk = inputs_embeds[:, ss:ee]
     prompt_length = None
 
-    if getattr(self.config, 'longvideo_kwargs', None) and self.config.longvideo_kwargs.get('kvcache_compression', False):
-        compression_kwargs = self.config.longvideo_kwargs['kvcache_compression_kwargs']
-        if compression_kwargs.get('prompt_guided_compression', False) and compression_kwargs.get('compression_ratio', 1) < 1.0:
+    if getattr(
+        self.config, "longvideo_kwargs", None
+    ) and self.config.longvideo_kwargs.get("kvcache_compression", False):
+        compression_kwargs = self.config.longvideo_kwargs["kvcache_compression_kwargs"]
+        if (
+            compression_kwargs.get("prompt_guided_compression", False)
+            and compression_kwargs.get("compression_ratio", 1) < 1.0
+        ):
             # Prompt guided KV cache compression
             s_p, e_p, t_p = modality_segments[-1]
-            max_guide_length = min(e_p - s_p, compression_kwargs.get('max_guide_length', 999999999999999999))
+            max_guide_length = min(
+                e_p - s_p,
+                compression_kwargs.get("max_guide_length", 999999999999999999),
+            )
             s_p = s_p + (e_p - s_p - max_guide_length)
             # NOTE: make sure to include end-of-vision symbol like '<|vision_end|>'(151653)
             if isinstance(self, Qwen2VLForConditionalGeneration):
@@ -510,15 +636,29 @@ def retake_Qwen2VLForConditionalGeneration_forge_input_chunks(self, ss, ee, moda
                 pass
             else:
                 raise NotImplementedError
-            assert t_p == 'text'
-            pos_offset = position_ids[0,0,s_p] - position_ids_chunk[0,0,-1] - 1 # (3, bs, seq_len)
-            position_ids_chunk = torch.cat([position_ids_chunk, position_ids[:,:,s_p:e_p] - pos_offset], dim=2)
-            attention_mask_chunk = torch.cat([attention_mask_chunk, attention_mask[:,s_p:e_p]], dim=1)
-            inputs_embeds_chunk = torch.cat([inputs_embeds_chunk, inputs_embeds[:,s_p:e_p]], dim=1)
+            assert t_p == "text"
+            pos_offset = (
+                position_ids[0, 0, s_p] - position_ids_chunk[0, 0, -1] - 1
+            )  # (3, bs, seq_len)
+            position_ids_chunk = torch.cat(
+                [position_ids_chunk, position_ids[:, :, s_p:e_p] - pos_offset], dim=2
+            )
+            attention_mask_chunk = torch.cat(
+                [attention_mask_chunk, attention_mask[:, s_p:e_p]], dim=1
+            )
+            inputs_embeds_chunk = torch.cat(
+                [inputs_embeds_chunk, inputs_embeds[:, s_p:e_p]], dim=1
+            )
             prompt_length = e_p - s_p
-            cache_position_chunk = cache_position[:ee+prompt_length]
+            cache_position_chunk = cache_position[: ee + prompt_length]
 
-    return cache_position_chunk, position_ids_chunk, attention_mask_chunk, inputs_embeds_chunk, prompt_length
+    return (
+        cache_position_chunk,
+        position_ids_chunk,
+        attention_mask_chunk,
+        inputs_embeds_chunk,
+        prompt_length,
+    )
 
 
 def retake_Qwen2VLForConditionalGeneration_forward(
@@ -540,23 +680,31 @@ def retake_Qwen2VLForConditionalGeneration_forward(
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
 ) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
-    assert input_ids.shape[0] == 1, "Batch inference of long video is not supported yet!"
+    assert (
+        input_ids.shape[0] == 1
+    ), "Batch inference of long video is not supported yet!"
 
-    if (cache_position is not None and cache_position[0] == 0): # Prefill
+    if cache_position is not None and cache_position[0] == 0:  # Prefill
         is_prefill = True
         # Calculate chunk size based on inputs
         chunk_size = self.get_chunk_size(self.config, video_grid_thw)
         # Configuring KV Cache compression kwargs
-        if getattr(self.config, 'longvideo_kwargs', None) and self.config.longvideo_kwargs.get('kvcache_compression', False):
-            compression_kwargs = self.config.longvideo_kwargs['kvcache_compression_kwargs']
-            if compression_kwargs.get('dynamic_compression_ratio', False):
+        if getattr(
+            self.config, "longvideo_kwargs", None
+        ) and self.config.longvideo_kwargs.get("kvcache_compression", False):
+            compression_kwargs = self.config.longvideo_kwargs[
+                "kvcache_compression_kwargs"
+            ]
+            if compression_kwargs.get("dynamic_compression_ratio", False):
                 # Dynamic compression ratio
                 input_length = input_ids.shape[1]
-                max_input_length = compression_kwargs['max_input_length']
+                max_input_length = compression_kwargs["max_input_length"]
                 if input_length <= max_input_length:
-                    compression_kwargs['compression_ratio'] = 1
+                    compression_kwargs["compression_ratio"] = 1
                 else:
-                    compression_kwargs['compression_ratio'] = max_input_length / input_length
+                    compression_kwargs["compression_ratio"] = (
+                        max_input_length / input_length
+                    )
         if chunk_size is not None:
             modality_segments = self.segment_input_ids(input_ids)
             past_key_values = build_kvcache(self.config)
@@ -565,16 +713,26 @@ def retake_Qwen2VLForConditionalGeneration_forward(
         is_prefill = False
         chunk_size = None
 
-    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_attentions = (
+        output_attentions
+        if output_attentions is not None
+        else self.config.output_attentions
     )
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+    output_hidden_states = (
+        output_hidden_states
+        if output_hidden_states is not None
+        else self.config.output_hidden_states
+    )
+    return_dict = (
+        return_dict if return_dict is not None else self.config.use_return_dict
+    )
 
     # if we get 4D attention mask we cannot calculate rope deltas anymore. TODO @raushan fixme
     if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
         # calculate RoPE index once per generation in the pre-fill stage only
-        if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
+        if (
+            cache_position is not None and cache_position[0] == 0
+        ) or self.rope_deltas is None:
             position_ids, rope_deltas = self.get_rope_index(
                 input_ids, image_grid_thw, video_grid_thw, attention_mask
             )
@@ -582,7 +740,11 @@ def retake_Qwen2VLForConditionalGeneration_forward(
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
             batch_size, seq_length = input_ids.shape
-            delta = cache_position[0] + self.rope_deltas if cache_position is not None else 0
+            delta = (
+                cache_position[0] + self.rope_deltas
+                if cache_position is not None
+                else 0
+            )
             position_ids = torch.arange(seq_length, device=input_ids.device)
             position_ids = position_ids.view(1, -1).expand(batch_size, -1)
             if cache_position is not None:  # otherwise `deltas` is an int `0`
@@ -601,31 +763,48 @@ def retake_Qwen2VLForConditionalGeneration_forward(
             grid_t, grid_h, grid_w = video_grid_thw[0]
             # NOTE: Split video into chunks to avoid OOM due to large activations during visual forward
             # chunk_size can be up to 128 or higher if you have flash attention
-            frame_chunk_size = getattr(self.config, 'longvideo_kwargs', {}).get('frame_chunk_size', 1000000000)
+            frame_chunk_size = getattr(self.config, "longvideo_kwargs", {}).get(
+                "frame_chunk_size", 1000000000
+            )
             if grid_t < frame_chunk_size:
                 video_embeds = self.visual(pixel_values_videos, grid_thw=video_grid_thw)
             else:
                 d = pixel_values_videos.shape[-1]
-                pixel_values_videos = pixel_values_videos.reshape(grid_t, grid_h*grid_w, d)
+                pixel_values_videos = pixel_values_videos.reshape(
+                    grid_t, grid_h * grid_w, d
+                )
                 video_embeds = []
                 for i in range(0, grid_t, frame_chunk_size):
-                    pixel_values_videos_chunk = pixel_values_videos[i:i+frame_chunk_size]
+                    pixel_values_videos_chunk = pixel_values_videos[
+                        i : i + frame_chunk_size
+                    ]
                     grid_t_chunk = pixel_values_videos_chunk.shape[0]
                     video_grid_thw_chunk = video_grid_thw.clone()
-                    video_grid_thw_chunk[0,0] = grid_t_chunk
+                    video_grid_thw_chunk[0, 0] = grid_t_chunk
                     video_embeds.append(
-                        self.visual(pixel_values_videos_chunk.reshape(-1, d), grid_thw=video_grid_thw_chunk)
+                        self.visual(
+                            pixel_values_videos_chunk.reshape(-1, d),
+                            grid_thw=video_grid_thw_chunk,
+                        )
                     )
                 video_embeds = torch.cat(video_embeds)
             # Compression video tokens
-            input_ids, attention_mask, video_embeds, cache_position, position_ids, labels, keypatches_mask = self.compress_video_tokens(
-                input_ids=input_ids, 
-                attention_mask=attention_mask, 
-                video_embeds=video_embeds, 
+            (
+                input_ids,
+                attention_mask,
+                video_embeds,
+                cache_position,
+                position_ids,
+                labels,
+                keypatches_mask,
+            ) = self.compress_video_tokens(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                video_embeds=video_embeds,
                 cache_position=cache_position,
                 position_ids=position_ids,
                 labels=labels,
-                video_grid_thw=video_grid_thw
+                video_grid_thw=video_grid_thw,
             )
 
         # Concat visual and textual features
@@ -662,44 +841,68 @@ def retake_Qwen2VLForConditionalGeneration_forward(
             video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
             inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
             if keypatches_mask is not None:
-                keypatches_mask = torch.zeros_like(input_ids).bool().masked_scatter(video_mask[:,:,0], keypatches_mask)
+                keypatches_mask = (
+                    torch.zeros_like(input_ids)
+                    .bool()
+                    .masked_scatter(video_mask[:, :, 0], keypatches_mask)
+                )
 
         if attention_mask is not None:
             attention_mask = attention_mask.to(inputs_embeds.device)
         if position_ids is not None:
             position_ids = position_ids.to(inputs_embeds.device)
 
-    if is_prefill and chunk_size is not None: # Chunked prefill stage
+    if is_prefill and chunk_size is not None:  # Chunked prefill stage
         assert past_key_values is not None
-        kvcache_compression = getattr(past_key_values, 'kvcache_compression', False)
+        kvcache_compression = getattr(past_key_values, "kvcache_compression", False)
         for seg_id, (s, e, dtype) in enumerate(modality_segments):
-            if dtype == 'text': # Prefill text without kvcache_compression
+            if dtype == "text":  # Prefill text without kvcache_compression
                 past_key_values.kvcache_compression = False
                 outputs = self.model(
                     input_ids=None,
-                    position_ids=position_ids[:,:,s:e],
-                    attention_mask=attention_mask[:,:e],
+                    position_ids=position_ids[:, :, s:e],
+                    attention_mask=attention_mask[:, :e],
                     past_key_values=past_key_values,
-                    inputs_embeds=inputs_embeds[:,s:e],
+                    inputs_embeds=inputs_embeds[:, s:e],
                     use_cache=True,
                     output_attentions=output_attentions,
                     output_hidden_states=output_hidden_states,
                     return_dict=return_dict,
                     cache_position=cache_position[:e],
                 )
-                past_key_values = outputs['past_key_values']
-            elif dtype == 'video': # Prefill video may with kvcache_compression
+                past_key_values = outputs["past_key_values"]
+            elif dtype == "video":  # Prefill video may with kvcache_compression
                 num_chunks = math.ceil((e - s) / chunk_size)
                 past_key_values.kvcache_compression = kvcache_compression
-                for idx in tqdm(range(num_chunks), total=num_chunks, desc='Prefilling chunk', disable=not DEBUG_MODE):
+                for idx in tqdm(
+                    range(num_chunks),
+                    total=num_chunks,
+                    desc="Prefilling chunk",
+                    disable=not DEBUG_MODE,
+                ):
                     ss = s + idx * chunk_size
                     ee = min(s + (idx + 1) * chunk_size, e)
                     if keypatches_mask is not None:
-                        past_key_values.keypatches_mask_chunk = keypatches_mask[0,ss:ee]
-                    cache_position_chunk, position_ids_chunk, attention_mask_chunk, inputs_embeds_chunk, prompt_length = self.forge_input_chunks(
-                        ss, ee, modality_segments, cache_position, position_ids, attention_mask, past_key_values, inputs_embeds
+                        past_key_values.keypatches_mask_chunk = keypatches_mask[
+                            0, ss:ee
+                        ]
+                    (
+                        cache_position_chunk,
+                        position_ids_chunk,
+                        attention_mask_chunk,
+                        inputs_embeds_chunk,
+                        prompt_length,
+                    ) = self.forge_input_chunks(
+                        ss,
+                        ee,
+                        modality_segments,
+                        cache_position,
+                        position_ids,
+                        attention_mask,
+                        past_key_values,
+                        inputs_embeds,
                     )
-                    if hasattr(past_key_values, 'before_forward'):
+                    if hasattr(past_key_values, "before_forward"):
                         past_key_values.before_forward(prompt_length=prompt_length)
                     outputs = self.model(
                         input_ids=None,
@@ -713,14 +916,14 @@ def retake_Qwen2VLForConditionalGeneration_forward(
                         return_dict=return_dict,
                         cache_position=cache_position_chunk,
                     )
-                    past_key_values = outputs['past_key_values']
-                    if hasattr(past_key_values, 'after_forward'):
+                    past_key_values = outputs["past_key_values"]
+                    if hasattr(past_key_values, "after_forward"):
                         past_key_values.after_forward()
                 past_key_values.keypatches_mask_chunk = None
-                past_key_values.kvcache_compression = False # Turned off for decoding
+                past_key_values.kvcache_compression = False  # Turned off for decoding
             else:
                 raise ValueError
-    else: # Decode / Standard prefill stage
+    else:  # Decode / Standard prefill stage
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,
