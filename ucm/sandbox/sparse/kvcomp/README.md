@@ -41,7 +41,7 @@
 
 </div>
 
-## 📈 Accurancy Benchmarks
+## 📈 Accuracy Benchmarks
 
 
 <div align="center">
@@ -94,7 +94,7 @@ This design ensures both **efficiency** and **accuracy** by preserving essential
 
 ### Installation
 
-KVComp is part of the UCM Sparse Attention module. For installation instructions, please refer to the [UCM's top-level README](../../../../README.md). Once UCM is installed, KVComp is natrually supported by running the following example python scripts.
+KVComp is part of the UCM Sparse Attention module. For installation instructions, please refer to the [UCM's top-level README](../../../../README.md). Once UCM is installed, KVComp is naturally supported by running the following example python scripts.
 
 ```bash
 python ucm/sandbox/sparse/kvcomp/offline_inference_kvcomp.py
@@ -123,7 +123,7 @@ ktc = KVTransferConfig(
 ```
 
 ### Configuration
-KvComp need a json configuration file. We have alread included several configs in `configs` folder, including Qwen3-4B, Qwen3-32B, and QwQ-32B.
+KvComp need a json configuration file. We have already included several configs in `configs` folder, including Qwen3-4B, Qwen3-32B, and QwQ-32B.
 
 ```json
 {
