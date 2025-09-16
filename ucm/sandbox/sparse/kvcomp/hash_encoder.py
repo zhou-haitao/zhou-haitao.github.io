@@ -23,23 +23,23 @@ THE SOFTWARE.
 """
 
 import torch
-if hasattr(torch, 'npu') and torch.npu.is_available():
+
+if hasattr(torch, "npu") and torch.npu.is_available():
     import torch_npu
 
 from ucm.logger import init_logger
+
 logger = init_logger(__name__)
+
 
 class HashEncoder:
     """
     HashEncoder converts a float tensor to a binary hash code tensor,
     and it packs every 8 bits into a uint8 number.
     """
+
     def __init__(
-        self,
-        input_dim: int,
-        hash_bits: int,
-        dtype: torch.dtype,
-        device: torch.device
+        self, input_dim: int, hash_bits: int, dtype: torch.dtype, device: torch.device
     ) -> None:
         self.input_dim = input_dim
 
@@ -49,56 +49,70 @@ class HashEncoder:
         self.hash_bits = hash_bits
 
         # number of uint8 numbers to store hash_bits bits
-        self.hash_numbers = self.hash_bits // 8  
+        self.hash_numbers = self.hash_bits // 8
 
         self.dtype = dtype
         self.device = device
 
-        if self.device.type == 'npu':
+        if self.device.type == "npu":
             if dtype not in [torch.float16, torch.float32, torch.float64]:
-                logger.warning("NPU only supports float16, float32 and float64 for hash_weights")
+                logger.warning(
+                    "NPU only supports float16, float32 and float64 for hash_weights"
+                )
                 logger.warning("automatically using  float16 for hash_weights now")
-                self.dtype = torch.float16 
-        
-        self.hash_weights = torch.normal(mean=0, std=2, size=(self.input_dim, self.hash_bits), dtype=self.dtype, device=self.device)
+                self.dtype = torch.float16
 
-        if self.device.type == 'cuda' or self.device.type == 'cpu':
+        self.hash_weights = torch.normal(
+            mean=0,
+            std=2,
+            size=(self.input_dim, self.hash_bits),
+            dtype=self.dtype,
+            device=self.device,
+        )
+
+        if self.device.type == "cuda" or self.device.type == "cpu":
             self._init_bit_masks()
-    
-    def set_hash_weight(
-        self, 
-        hash_weights: torch.Tensor
-    ) -> None:
+
+    def set_hash_weight(self, hash_weights: torch.Tensor) -> None:
         if hash_weights.shape != (self.input_dim, self.hash_bits):
-            raise ValueError(f"hash_weights shape {hash_weights.shape} does not match required shape {(self.input_dim, self.hash_bits)}")
+            raise ValueError(
+                f"hash_weights shape {hash_weights.shape} does not match required shape {(self.input_dim, self.hash_bits)}"
+            )
         if hash_weights.dtype != self.dtype:
-            raise ValueError(f"hash_weights dtype {hash_weights.dtype} does not match required dtype {self.dtype}")
+            raise ValueError(
+                f"hash_weights dtype {hash_weights.dtype} does not match required dtype {self.dtype}"
+            )
         if hash_weights.device != self.device:
-            raise ValueError(f"hash_weights device {hash_weights.device} does not match required device {self.device}")
-        
+            raise ValueError(
+                f"hash_weights device {hash_weights.device} does not match required device {self.device}"
+            )
+
         self.hash_weights.copy_(hash_weights)
-    
+
     def _init_bit_masks(self) -> None:
-        self.bit_masks = torch.pow(2, torch.arange(8, dtype=torch.uint8, device=self.device))
+        self.bit_masks = torch.pow(
+            2, torch.arange(8, dtype=torch.uint8, device=self.device)
+        )
         # shape (1, 1, 8)
-        self.bit_masks = self.bit_masks.unsqueeze(0).unsqueeze(0)  
-                            
-    def compute_hash(
-        self,
-        x: torch.Tensor
-    ) -> torch.Tensor:
+        self.bit_masks = self.bit_masks.unsqueeze(0).unsqueeze(0)
+
+    def compute_hash(self, x: torch.Tensor) -> torch.Tensor:
         """
         Compute the hash code for input tensor x.
-        Args:  
+        Args:
             x: input tensor of shape (..., input_dim)
         Returns:
-            A tensor of shape (..., hash_numbers=hash_bits // 8) representing the hash codes. 
+            A tensor of shape (..., hash_numbers=hash_bits // 8) representing the hash codes.
             Each element is a uint8 number representing 8 bits of the hash code.
         """
         if x.shape[-1] != self.input_dim:
-            raise ValueError(f"x must be of shape (..., {self.input_dim}), but got {x.shape}")
+            raise ValueError(
+                f"x must be of shape (..., {self.input_dim}), but got {x.shape}"
+            )
         if x.device != self.device:
-            raise ValueError(f"x device {x.device} does not match required device {self.device}")
+            raise ValueError(
+                f"x device {x.device} does not match required device {self.device}"
+            )
 
         # original shape without the last dimension
         # e.g. x.shape=[s1,s2,s3,input_dim], orig_shape=[s1,s2,s3]
@@ -112,78 +126,87 @@ class HashEncoder:
 
         # [N, hash_bits]
         xW = torch.matmul(x_flat, self.hash_weights)
-       
+
         # [N * hash_bits]
         xW_flat = xW.view(-1)
 
-        if self.device.type == 'npu':
+        if self.device.type == "npu":
             # [N*hash_numbers], where hash_numbers = hash_bits // 8
             packed_codes_flat = torch_npu.npu_sign_bits_pack(xW_flat, size=1)
-        elif self.device.type == 'cuda' or self.device.type == 'cpu':
+        elif self.device.type == "cuda" or self.device.type == "cpu":
             # (TODO) improve performance later on CUDA ops and CPU SIMD instructions
             # [N, hash_bits]
             projected = (xW > 0).to(torch.uint8)
 
             # [N, hash_numbers, 8]
-            binary_codes = projected.view(-1, self.hash_numbers, 8)  
+            binary_codes = projected.view(-1, self.hash_numbers, 8)
 
             # binary_codes * self.bit_masks [N, hash_numbers, 8] * [1, 1, 8] -> [N, hash_numbers, 8]
             # then sum along the last dimension to get [N, hash_numbers]
-            packed_codes_flat = torch.sum(binary_codes * self.bit_masks, dim=-1, dtype=torch.uint8)  # [N, hash_numbers]
+            packed_codes_flat = torch.sum(
+                binary_codes * self.bit_masks, dim=-1, dtype=torch.uint8
+            )  # [N, hash_numbers]
             packed_codes_flat = packed_codes_flat.view(-1)  # [N * hash_numbers]
         else:
             raise ValueError(f"Unsupported device type: {self.device.type}")
 
         # e.g., [s1, s2, s3, hash_numbers]
         out_shape = orig_shape + (self.hash_numbers,)
-        packed_codes = packed_codes_flat.view(out_shape) 
+        packed_codes = packed_codes_flat.view(out_shape)
 
         return packed_codes
 
-    def _unpack_hash(
-        self,
-        packed_codes: torch.Tensor
-    ) -> torch.Tensor:
+    def _unpack_hash(self, packed_codes: torch.Tensor) -> torch.Tensor:
         """
         Unpack the hash codes to +1 or -1 bits.
         Args:
             packed_codes: input tensor of shape (..., hash_numbers), dtype=torch.uint8
         Returns:
-            A tensor of shape (..., hash_bits=hash_numbers*8) representing the unpacked bits. 
+            A tensor of shape (..., hash_bits=hash_numbers*8) representing the unpacked bits.
             Each element is either -1 or 1.
         """
         if packed_codes.shape[-1] != self.hash_numbers:
-            raise ValueError(f"packed_codes must be of shape (..., {self.hash_numbers}), but got {packed_codes.shape}")
+            raise ValueError(
+                f"packed_codes must be of shape (..., {self.hash_numbers}), but got {packed_codes.shape}"
+            )
         if packed_codes.device != self.device:
-            raise ValueError(f"packed_codes device {packed_codes.device} does not match required device {self.device}")
+            raise ValueError(
+                f"packed_codes device {packed_codes.device} does not match required device {self.device}"
+            )
         if packed_codes.dtype != torch.uint8:
-            raise ValueError(f"packed_codes dtype {packed_codes.dtype} is not torch.uint8")
+            raise ValueError(
+                f"packed_codes dtype {packed_codes.dtype} is not torch.uint8"
+            )
 
         # e.g., packed_codes.shape=[s1, s2, s3, hash_numbers]
         # orig_shape = [s1, s2, s3]
         orig_shape = packed_codes.shape[:-1]
-        
+
         # [N * hash_numbers], e.g., N = s1*s2*s3
         packed_codes_flat = packed_codes.view(-1)
 
-        if self.device.type == 'npu':
+        if self.device.type == "npu":
             # [N * hash_bits]
-            unpacked_bits_flat = torch_npu.npu_sign_bits_unpack(packed_codes_flat, size=1, dtype=torch.float16)
-        elif self.device.type == 'cuda' or self.device.type == 'cpu':
+            unpacked_bits_flat = torch_npu.npu_sign_bits_unpack(
+                packed_codes_flat, size=1, dtype=torch.float16
+            )
+        elif self.device.type == "cuda" or self.device.type == "cpu":
             # (TODO) improve performance later on CUDA ops and CPU SIMD instructions
             # [N, hash_numbers]
-            packed_codes_2d = packed_codes_flat.view(-1, self.hash_numbers)  
+            packed_codes_2d = packed_codes_flat.view(-1, self.hash_numbers)
 
             # [N, hash_numbers, 8]
-            expanded = packed_codes_2d.unsqueeze(-1).expand(-1, -1, 8)  # expand last dim to 8
+            expanded = packed_codes_2d.unsqueeze(-1).expand(
+                -1, -1, 8
+            )  # expand last dim to 8
 
             # (expanded & self.bit_masks) > 0 -> [N, hash_numbers, 8]
-            unpacked_bits = (expanded & self.bit_masks) > 0  
+            unpacked_bits = (expanded & self.bit_masks) > 0
 
             # 0 -> -1, 1 -> 1
-            unpacked_bits = unpacked_bits*2-1
+            unpacked_bits = unpacked_bits * 2 - 1
 
-            unpacked_bits = unpacked_bits.to(torch.float16)  
+            unpacked_bits = unpacked_bits.to(torch.float16)
 
             # [N, hash_bits]
             unpacked_bits_flat = unpacked_bits.view(-1, self.hash_bits)
@@ -195,13 +218,14 @@ class HashEncoder:
 
         return unpacked_bits
 
+
 if __name__ == "__main__":
-    if hasattr(torch, 'npu') and torch.npu.is_available():
-        device=torch.device("npu:0")
-    elif hasattr(torch, 'cuda') and torch.cuda.is_available():
-        device=torch.device("cuda:0")
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        device = torch.device("npu:0")
+    elif hasattr(torch, "cuda") and torch.cuda.is_available():
+        device = torch.device("cuda:0")
     else:
-        device=torch.device("cpu")
+        device = torch.device("cpu")
 
     print("Using device:", device)
 
@@ -220,5 +244,9 @@ if __name__ == "__main__":
     print("unpacked_bits:", unpacked_bits)
     print("unpacked_bits shape:", unpacked_bits.shape)
 
-    print(f"hash_codes[0].item()={hash_codes[0].item()}, 8-bit binary form:{hash_codes[0].item():08b}")
-    print(f"hash_codes[1].item()={hash_codes[1].item()}, 8-bit binary form:{hash_codes[1].item():08b}")
+    print(
+        f"hash_codes[0].item()={hash_codes[0].item()}, 8-bit binary form:{hash_codes[0].item():08b}"
+    )
+    print(
+        f"hash_codes[1].item()={hash_codes[1].item()}, 8-bit binary form:{hash_codes[1].item():08b}"
+    )

@@ -14,15 +14,16 @@ logger = init_logger(__name__)
 
 import torch
 
+
 def setup_environment_variables():
     os.environ["VLLM_USE_V1"] = "1"
     os.environ["PYTHONHASHSEED"] = "123456"
     os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-    if hasattr(torch, 'npu') and torch.npu.is_available():
+    if hasattr(torch, "npu") and torch.npu.is_available():
         os.environ["ASCEND_RT_VISIBLE_DEVICES"] = "4,5,6,7"
     elif torch.cuda.is_available():
         os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
-    
+
     os.environ["VLLM_DISABLE_COMPILE_CACHE"] = "1"
 
 

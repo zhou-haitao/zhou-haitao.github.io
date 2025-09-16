@@ -39,6 +39,7 @@ from ucm.sandbox.sparse.kvcomp.hash_encoder import HashEncoder
 from ucm.sandbox.sparse.kvcomp.kvcomp_config import KvCompConfig
 
 from ucm.logger import init_logger
+
 logger = init_logger(__name__)
 
 from ucm.integration.vllm.ucm_sparse.base import (
@@ -222,12 +223,14 @@ class ReqStatePerLayer:
         block_repre_ = self.block_repre[retrieval_start:retrieval_end]
 
         if block_repre_.shape[0] == 0:
-            scores = torch.empty((block_repre_.shape[0]), dtype=query.dtype, device=query.device)
+            scores = torch.empty(
+                (block_repre_.shape[0]), dtype=query.dtype, device=query.device
+            )
         else:
             ucm_sparse = get_ucm_sparse()
             hash_encoder = ucm_sparse.hash_encoder
             # query.shape [ntokens/BS, num_heads, head_size]
-            
+
             # hash_query.shape [ntokens/BS, num_heads, hash_bits//8]
             hash_query = hash_encoder.compute_hash(query)
             # unpack_hash_query.shape [ntokens/BS, num_heads, hash_bits//8, 8]
@@ -236,13 +239,14 @@ class ReqStatePerLayer:
             # block_repre_.shape [n_blocks, block_size, num_kv_heads, head_size]
             # unpack_hash_key_cache.shape [n_blocks, block_size, num_kv_heads, hash_bits//8, 8]
             unpack_hash_key_cache = hash_encoder._unpack_hash(block_repre_)
-            
-            scores = torch.einsum("tid,njsd->tijsn", unpack_hash_query, unpack_hash_key_cache)
-            dims = tuple(range(scores.ndim-1))
+
+            scores = torch.einsum(
+                "tid,njsd->tijsn", unpack_hash_query, unpack_hash_key_cache
+            )
+            dims = tuple(range(scores.ndim - 1))
 
             # [ntokens/BS, n_blocks]
-            scores = scores.sum(dim=dims)  
-            
+            scores = scores.sum(dim=dims)
 
         topk_ret = torch.topk(scores, top_k)
         topk_index = topk_ret.indices
@@ -312,9 +316,7 @@ class ReqStatePerLayer:
     def extract_block_repre(self, vllm_block_ids):
         ucm_sparse = get_ucm_sparse()
         hash_encoder = ucm_sparse.hash_encoder
-        hashk_cache = hash_encoder.compute_hash(
-            self.k_cache[vllm_block_ids]
-        )
+        hashk_cache = hash_encoder.compute_hash(self.k_cache[vllm_block_ids])
         return hashk_cache
 
     def save_blocks(self, num_blocks_need_dump):
@@ -337,9 +339,9 @@ class ReqStatePerLayer:
             vllm_block_ids_dump = vllm_block_ids[-1:]
         self.launch_transfer_task("dump", block_hashes, vllm_block_ids_dump)
         repre = self.extract_block_repre(vllm_block_ids_dump)
-        
+
         # [n_blocks, num_kv_heads, block_size, hash_bits//8]
-        repre = repre.transpose(1,2).contiguous()  
+        repre = repre.transpose(1, 2).contiguous()
         # TODO: pre-allocate can speed up here
         if self.block_repre is None:
             self.block_repre = repre
@@ -438,35 +440,44 @@ class KvComp(UcmSparseBase):
         self.rank = vllm_config.parallel_config.rank
         self.tp_size = vllm_config.parallel_config.tensor_parallel_size
         self.block_size = vllm_config.cache_config.block_size
-        
-        max_cache_size = vllm_config.kv_transfer_config.kv_connector_extra_config["ucm_connector_config"]["max_cache_size"]
-        config = {"max_cache_size": max_cache_size, "device": self.rank, "role": "worker"}
+
+        max_cache_size = vllm_config.kv_transfer_config.kv_connector_extra_config[
+            "ucm_connector_config"
+        ]["max_cache_size"]
+        config = {
+            "max_cache_size": max_cache_size,
+            "device": self.rank,
+            "role": "worker",
+        }
         self.connector = UcmConnectorFactory.create_connector("UcmDram", config)
-        
-        kvcomp_config_path = vllm_config.kv_transfer_config.kv_connector_extra_config["kvcomp_config_path"]
+
+        kvcomp_config_path = vllm_config.kv_transfer_config.kv_connector_extra_config[
+            "kvcomp_config_path"
+        ]
         self.kvcomp_config = KvCompConfig.from_json(kvcomp_config_path)
         logger.info(f"read kvcomp config file: {kvcomp_config_path} ")
 
-        assert (self.kvcomp_config.num_hidden_layers == vllm_config.model_config.hf_text_config.num_hidden_layers), \
-            f"kvcomp_config.num_hidden_layers {self.kvcomp_config.num_hidden_layers} \
+        assert (
+            self.kvcomp_config.num_hidden_layers
+            == vllm_config.model_config.hf_text_config.num_hidden_layers
+        ), f"kvcomp_config.num_hidden_layers {self.kvcomp_config.num_hidden_layers} \
                 != vllm_config.model_config.hf_text_config.num_hidden_layers \
                     {vllm_config.model_config.hf_text_config.num_hidden_layers}"
 
-
         dtype = vllm_config.model_config.dtype
-        
-        if hasattr(torch, 'npu') and torch.npu.is_available():
-            device = torch.device(f'npu:{self.rank}')
+
+        if hasattr(torch, "npu") and torch.npu.is_available():
+            device = torch.device(f"npu:{self.rank}")
         elif torch.cuda.is_available():
-            device = torch.device(f'cuda:{self.rank}')
+            device = torch.device(f"cuda:{self.rank}")
         else:
-            device = torch.device('cpu')
+            device = torch.device("cpu")
         self.hash_encoder = HashEncoder(
             input_dim=self.kvcomp_config.head_dim,
             hash_bits=self.kvcomp_config.hash_bits,
             dtype=dtype,
             device=device,
-        )   
+        )
 
         # TODO: consider init self.is_mla here
 
