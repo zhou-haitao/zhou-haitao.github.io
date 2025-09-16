@@ -22,10 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from dataclasses import dataclass, asdict, field
-from typing import List, Optional
-import numpy as np
 import json
+from dataclasses import asdict, dataclass, field
+from typing import List, Optional
+
+import numpy as np
 
 from ucm.logger import init_logger
 

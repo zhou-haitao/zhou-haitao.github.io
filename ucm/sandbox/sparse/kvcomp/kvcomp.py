@@ -35,10 +35,9 @@ from vllm.sequence import SequenceStage
 from vllm.v1.request import Request
 
 from ucm.integration.vllm.ucm_sparse.state import get_ucm_sparse
+from ucm.logger import init_logger
 from ucm.sandbox.sparse.kvcomp.hash_encoder import HashEncoder
 from ucm.sandbox.sparse.kvcomp.kvcomp_config import KvCompConfig
-
-from ucm.logger import init_logger
 
 logger = init_logger(__name__)
 
@@ -48,10 +47,9 @@ from ucm.integration.vllm.ucm_sparse.base import (
     UcmSparseMetadata,
     UcmSparseRole,
 )
+from ucm.integration.vllm.ucm_sparse.state import get_ucm_sparse
 from ucm.store.base import Task, UcmKVStoreBase
 from ucm.store.factory import UcmConnectorFactory
-
-from ucm.integration.vllm.ucm_sparse.state import get_ucm_sparse
 
 
 def stat(func):
