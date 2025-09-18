@@ -47,3 +47,4 @@ UcmSparseFactory.register_sparse_method("ESA", "ucm.ucm_sparse.esa", "ESA")
 UcmSparseFactory.register_sparse_method(
     "KvComp", "ucm.sandbox.sparse.kvcomp.kvcomp", "KvComp"
 )
+UcmSparseFactory.register_sparse_method("GSA", "ucm.ucm_sparse.gsa", "GSA")

@@ -30,7 +30,7 @@ def build_llm_with_uc(module_path: str, name: str, model: str):
                 "max_cache_size": 5368709120,
                 "kv_block_size": 262144,
             },
-            "ucm_sparse_method": "ESA",
+            "ucm_sparse_method": "GSA",
         },
     )
 
@@ -39,6 +39,7 @@ def build_llm_with_uc(module_path: str, name: str, model: str):
         kv_transfer_config=ktc,
         max_model_len=8000,
         gpu_memory_utilization=0.8,
+        block_size=128,
     )
 
     llm = LLM(**asdict(llm_args))
