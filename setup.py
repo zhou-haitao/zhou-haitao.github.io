@@ -128,8 +128,8 @@ class CMakeBuild(build_ext):
                         break
 
         if ext.name == "store":
-            install_dir = FSSTORE_INSTALL_DIR
-            build_install_dir = "ucm/store"
+            install_dir = STORE_INSTALL_DIR
+            build_install_dir = STORE_INSTALL_DIR
         elif ext.name == "esaretrieval":
             install_dir = RETRIEVAL_INSTALL_DIR
             build_install_dir = "ucm/ucm_sparse/retrieval"
