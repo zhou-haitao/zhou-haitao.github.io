@@ -23,80 +23,72 @@
  * */
 #include "api/dramstore.h"
 #include <pybind11/pybind11.h>
-#include "template/singleton.h"
 
 namespace py = pybind11;
-using StoreImpl = UC::DramStore;
 
 namespace UC {
 
-inline void* CCStoreImpl() { return Singleton<StoreImpl>::Instance(); }
-inline int32_t Setup(const StoreImpl::Config& config)
-{
-    return ((StoreImpl*)CCStoreImpl())->Setup(config);
-}
-inline int32_t Alloc(const std::string& block) { return ((StoreImpl*)CCStoreImpl())->Alloc(block); }
-inline bool Lookup(const std::string& block) { return ((StoreImpl*)CCStoreImpl())->Lookup(block); }
-inline void Commit(const std::string& block, const bool success)
-{
-    return ((StoreImpl*)CCStoreImpl())->Commit(block, success);
-}
-inline py::list AllocBatch(const py::list& blocks)
-{
-    py::list results;
-    for (auto& block : blocks) { results.append(Alloc(block.cast<std::string>())); }
-    return results;
-}
-inline py::list LookupBatch(const py::list& blocks)
-{
-    py::list founds;
-    for (auto& block : blocks) { founds.append(Lookup(block.cast<std::string>())); }
-    return founds;
-}
-inline void CommitBatch(const py::list& blocks, const bool success)
-{
-    for (auto& block : blocks) { Commit(block.cast<std::string>(), success); }
-}
-inline int32_t Wait(const size_t task) { return ((StoreImpl*)CCStoreImpl())->Wait(task); }
-inline py::tuple Check(const size_t task)
-{
-    auto finish = false;
-    auto ret = ((StoreImpl*)CCStoreImpl())->Check(task, finish);
-    return py::make_tuple(ret, finish);
-}
-size_t Submit(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
-              const py::list& lengths, const CCStore::Task::Type type,
-              const CCStore::Task::Location location, const std::string& brief)
-{
-    CCStore::Task task{type, location, brief};
-    auto blockId = blockIds.begin();
-    auto offset = offsets.begin();
-    auto address = addresses.begin();
-    auto length = lengths.begin();
-    while ((blockId != blockIds.end()) && (offset != offsets.end()) &&
-           (address != addresses.end()) && (length != lengths.end())) {
-        auto ret = task.Append(blockId->cast<std::string>(), offset->cast<size_t>(),
-                               address->cast<uintptr_t>(), length->cast<size_t>());
-        if (ret != 0) { return CCStore::invalidTaskId; }
-        blockId++;
-        offset++;
-        address++;
-        length++;
+class DRAMStorePy : public DRAMStore {
+public:
+    void* CCStoreImpl() { return this; }
+    py::list AllocBatch(const py::list& blocks)
+    {
+        py::list results;
+        for (auto& block : blocks) { results.append(this->Alloc(block.cast<std::string>())); }
+        return results;
     }
-    return ((StoreImpl*)CCStoreImpl())->Submit(std::move(task));
-}
-inline size_t Load(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
-                   const py::list& lengths)
-{
-    return Submit(blockIds, offsets, addresses, lengths, CCStore::Task::Type::LOAD,
-                  CCStore::Task::Location::DEVICE, "Dram::H2D");
-}
-inline size_t Dump(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
-                   const py::list& lengths)
-{
-    return Submit(blockIds, offsets, addresses, lengths, CCStore::Task::Type::DUMP,
-                  CCStore::Task::Location::DEVICE, "Dram::D2H");
-}
+    py::list LookupBatch(const py::list& blocks)
+    {
+        py::list founds;
+        for (auto& block : blocks) { founds.append(this->Lookup(block.cast<std::string>())); }
+        return founds;
+    }
+    void CommitBatch(const py::list& blocks, const bool success)
+    {
+        for (auto& block : blocks) { this->Commit(block.cast<std::string>(), success); }
+    }
+    py::tuple CheckPy(const size_t task)
+    {
+        auto finish = false;
+        auto ret = this->Check(task, finish);
+        return py::make_tuple(ret, finish);
+    }
+    size_t Load(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
+                const py::list& lengths)
+    {
+        return this->SubmitPy(blockIds, offsets, addresses, lengths, CCStore::Task::Type::LOAD,
+                              CCStore::Task::Location::DEVICE, "DRAM::H2D");
+    }
+    size_t Dump(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
+                const py::list& lengths)
+    {
+        return this->SubmitPy(blockIds, offsets, addresses, lengths, CCStore::Task::Type::DUMP,
+                              CCStore::Task::Location::DEVICE, "DRAM::D2H");
+    }
+
+private:
+    size_t SubmitPy(const py::list& blockIds, const py::list& offsets, const py::list& addresses,
+                    const py::list& lengths, const CCStore::Task::Type type,
+                    const CCStore::Task::Location location, const std::string& brief)
+    {
+        CCStore::Task task{type, location, brief};
+        auto blockId = blockIds.begin();
+        auto offset = offsets.begin();
+        auto address = addresses.begin();
+        auto length = lengths.begin();
+        while ((blockId != blockIds.end()) && (offset != offsets.end()) &&
+               (address != addresses.end()) && (length != lengths.end())) {
+            auto ret = task.Append(blockId->cast<std::string>(), offset->cast<size_t>(),
+                                   address->cast<uintptr_t>(), length->cast<size_t>());
+            if (ret != 0) { return CCStore::invalidTaskId; }
+            blockId++;
+            offset++;
+            address++;
+            length++;
+        }
+        return this->Submit(std::move(task));
+    }
+};
 
 } // namespace UC
 
@@ -106,22 +98,24 @@ PYBIND11_MODULE(ucmdramstore, module)
     module.attr("version") = UC_VAR_PROJECT_VERSION;
     module.attr("commit_id") = UC_VAR_GIT_COMMIT_ID;
     module.attr("build_type") = UC_VAR_BUILD_TYPE;
-    auto store = module.def_submodule("DramStore");
-    auto config = py::class_<StoreImpl::Config>(store, "Config");
+    auto store = py::class_<UC::DRAMStorePy>(module, "DRAMStore");
+    auto config = py::class_<UC::DRAMStorePy::Config>(store, "Config");
     config.def(py::init<const size_t, const size_t>(), py::arg("ioSize"), py::arg("capacity"));
-    config.def_readwrite("ioSize", &StoreImpl::Config::ioSize);
-    config.def_readwrite("capacity", &StoreImpl::Config::capacity);
-    config.def_readwrite("deviceId", &StoreImpl::Config::deviceId);
-    module.def("CCStoreImpl", &UC::CCStoreImpl);
-    module.def("Setup", &UC::Setup);
-    module.def("Alloc", &UC::Alloc);
-    module.def("AllocBatch", &UC::AllocBatch);
-    module.def("Lookup", &UC::Lookup);
-    module.def("LookupBatch", &UC::LookupBatch);
-    module.def("Load", &UC::Load);
-    module.def("Dump", &UC::Dump);
-    module.def("Wait", &UC::Wait);
-    module.def("Check", &UC::Check);
-    module.def("Commit", &UC::Commit);
-    module.def("CommitBatch", &UC::CommitBatch);
+    config.def_readwrite("ioSize", &UC::DRAMStorePy::Config::ioSize);
+    config.def_readwrite("capacity", &UC::DRAMStorePy::Config::capacity);
+    config.def_readwrite("deviceId", &UC::DRAMStorePy::Config::deviceId);
+    store.def(py::init<>());
+    store.def("CCStoreImpl", &UC::DRAMStorePy::CCStoreImpl);
+    store.def("Setup", &UC::DRAMStorePy::Setup);
+    store.def("Alloc", py::overload_cast<const std::string&>(&UC::DRAMStorePy::Alloc));
+    store.def("AllocBatch", &UC::DRAMStorePy::AllocBatch);
+    store.def("Lookup", py::overload_cast<const std::string&>(&UC::DRAMStorePy::Lookup));
+    store.def("LookupBatch", &UC::DRAMStorePy::LookupBatch);
+    store.def("Load", &UC::DRAMStorePy::Load);
+    store.def("Dump", &UC::DRAMStorePy::Dump);
+    store.def("Wait", &UC::DRAMStorePy::Wait);
+    store.def("Check", &UC::DRAMStorePy::Check);
+    store.def("Commit",
+              py::overload_cast<const std::string&, const bool>(&UC::DRAMStorePy::Commit));
+    store.def("CommitBatch", &UC::DRAMStorePy::CommitBatch);
 }

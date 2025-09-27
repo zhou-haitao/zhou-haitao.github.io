@@ -29,7 +29,7 @@
 
 namespace UC {
 
-class NfsStoreImpl : public NfsStore {
+class NFSStoreImpl : public NFSStore {
 public:
     int32_t Setup(const Config& config)
     {
@@ -101,7 +101,7 @@ private:
     {
         std::string buildType = UC_VAR_BUILD_TYPE;
         if (buildType.empty()) { buildType = "Release"; }
-        UC_INFO("NfsStore-{}({}).", UC_VAR_GIT_COMMIT_ID, buildType);
+        UC_INFO("NFSStore-{}({}).", UC_VAR_GIT_COMMIT_ID, buildType);
         UC_INFO("Set UC::StorageBackends to {}.", config.storageBackends);
         UC_INFO("Set UC::BlockSize to {}.", config.kvcacheBlockSize);
         UC_INFO("Set UC::TransferEnable to {}.", config.transferEnable);
@@ -117,9 +117,9 @@ private:
     TsfTaskManager transMgr_;
 };
 
-int32_t NfsStore::Setup(const Config& config)
+int32_t NFSStore::Setup(const Config& config)
 {
-    auto impl = new (std::nothrow) NfsStoreImpl();
+    auto impl = new (std::nothrow) NFSStoreImpl();
     if (!impl) {
         UC_ERROR("Out of memory.");
         return Status::OutOfMemory().Underlying();

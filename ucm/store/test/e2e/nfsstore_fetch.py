@@ -28,8 +28,9 @@ from typing import List
 
 import torch
 import torch_npu
-from connector.nfsstore_connector import UcmNfsStore
-from connector.ucmstore import UcmKVStoreBase
+
+from ucm.store.connector.nfsstore_connector import UcmNfsStore
+from ucm.store.connector.ucmstore import UcmKVStoreBase
 
 
 def setup_store(storage_backends, block_size, device_id, io_size) -> UcmKVStoreBase:

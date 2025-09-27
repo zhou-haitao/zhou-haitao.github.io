@@ -108,8 +108,8 @@ protected:
     void Log(Level&& lv, SourceLocation&& loc, std::string&& msg) override
     {
         using namespace std::chrono;
-        static const size_t pid = static_cast<size_t>(getpid());
-        static thread_local const size_t tid = syscall(SYS_gettid);
+        static const auto pid = getpid();
+        static thread_local const auto tid = syscall(SYS_gettid);
         static thread_local seconds lastSec{0};
         static thread_local char datetime[32];
         auto systemNow = system_clock::now();
