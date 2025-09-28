@@ -1,20 +1,27 @@
-# 1p1d
+# 1p1d with different platforms
 
 ## Overview
-This example demonstrates how to run unified-cache-management with disaggregated prefill using NFS connector on a single node with a 1 prefiller + 1 decoder setup.
+This document demonstrates how to run unified-cache-management with disaggregated prefill using NFS connector on different platforms, with a setup of one prefiller node and one decoder node.
+
+If you need additional nodes to support your PD-disaggregation system, please refer to the [XpYd](./xpyd.md) documentation. 
+
+When deploying your disaggregated PD system, please ensure the following needs:
+- Environment Variable: Using  `ASCEND_RT_VISIBLE_DEVICES` instead of `CUDA_VISIBLE_DEVICES` to specify visible devices when starting service on Ascend platform.
+- Data Type Consistency: All vLLM service instances must be configured with the same data type (`dtype`).
 
 ## Prerequisites
 - UCM: Installed with reference to the Installation documentation.
-- Hardware: At least 2 GPUs
+- Hardware: At least 1 GPU and 1 NPU
 
 ## Start disaggregated service
-For illustration purposes, let us assume that the model used is Qwen2.5-7B-Instruct.
+For illustration purposes, let us assume that the model used is Qwen2.5-7B-Instruct and the prefill platform is ascend while decode platform is cuda.
 
 ### Run prefill server
 Prefiller Launch Command:
 ```bash
 export PYTHONHASHSEED=123456
-CUDA_VISIBLE_DEVICES=0 vllm serve /home/models/Qwen2.5-7B-Instruct \
+export ASCEND_RT_VISIBLE_DEVICES=0
+vllm serve /home/models/Qwen2.5-7B-Instruct \
 --max-model-len 20000 \
 --tensor-parallel-size 1 \
 --gpu_memory_utilization 0.87 \
@@ -23,6 +30,7 @@ CUDA_VISIBLE_DEVICES=0 vllm serve /home/models/Qwen2.5-7B-Instruct \
 --no-enable-prefix-caching \
 --port 7800 \
 --block-size 128 \
+--dtype bfloat16 \
 --kv-transfer-config \
 '{
     "kv_connector": "UnifiedCacheConnectorV1",
@@ -42,7 +50,7 @@ CUDA_VISIBLE_DEVICES=0 vllm serve /home/models/Qwen2.5-7B-Instruct \
 Decoder Launch Command:
 ```bash
 export PYTHONHASHSEED=123456
-CUDA_VISIBLE_DEVICES=1 vllm serve /home/models/Qwen2.5-7B-Instruct \
+CUDA_VISIBLE_DEVICES=0 vllm serve /home/models/Qwen2.5-7B-Instruct \
 --max-model-len 20000 \
 --tensor-parallel-size 1 \
 --gpu_memory_utilization 0.87 \
@@ -51,6 +59,7 @@ CUDA_VISIBLE_DEVICES=1 vllm serve /home/models/Qwen2.5-7B-Instruct \
 --no-enable-prefix-caching \
 --port 7801 \
 --block-size 128 \
+--dtype bfloat16 \
 --kv-transfer-config \
 '{
     "kv_connector": "UnifiedCacheConnectorV1",
