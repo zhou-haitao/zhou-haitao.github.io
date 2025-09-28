@@ -6,7 +6,6 @@ jobs:
   offline-inference:
     runs-on: arc-runner-ucm       
     steps:
-      - run: pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
       - uses: actions/checkout@v4
       - run: nvidia-smi
       - name: Run offline_inference in container
