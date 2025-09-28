@@ -48,8 +48,8 @@ from ucm.integration.vllm.ucm_sparse.base import (
     UcmSparseRole,
 )
 from ucm.integration.vllm.ucm_sparse.state import get_ucm_sparse
-from ucm.store.connector.factory import UcmConnectorFactory
-from ucm.store.connector.ucmstore import Task, UcmKVStoreBase
+from ucm.store.factory import UcmConnectorFactory
+from ucm.store.ucmstore import Task, UcmKVStoreBase
 
 
 def stat(func):

@@ -32,12 +32,11 @@ from setuptools.command.build_ext import build_ext
 from setuptools.command.develop import develop
 
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
-STORE_SRC_DIR = os.path.join(ROOT_DIR, "ucm", "store")
+STORE_SRC_DIR = ROOT_DIR
 GSA_SRC_DIR = os.path.join(ROOT_DIR, "ucm", "csrc", "gsaoffloadops")
 PREFETCH_SRC_DIR = os.path.join(ROOT_DIR, "ucm", "csrc", "ucmprefetch")
 RETRIEVAL_SRC_DIR = os.path.join(ROOT_DIR, "ucm", "csrc", "esaretrieval")
 
-STORE_INSTALL_DIR = os.path.join(ROOT_DIR, "ucm", "store", "connector")
 GSA_INSTALL_DIR = os.path.join(ROOT_DIR, "ucm", "ucm_sparse")
 RETRIEVAL_INSTALL_DIR = os.path.join(ROOT_DIR, "ucm", "ucm_sparse", "retrieval")
 
@@ -99,8 +98,8 @@ class CMakeBuild(build_ext):
                 ["cmake", "--build", ".", "--config", "Release", "--", "-j8"],
                 cwd=build_dir,
             )
-
-        self._copy_so_files(ext)
+        if not ext.name == "store":
+            self._copy_so_files(ext)
 
     def _copy_so_files(self, ext: CMakeExtension):
         """复制编译好的.so文件"""
@@ -111,9 +110,7 @@ class CMakeBuild(build_ext):
         so_files = []
         search_patterns = [ext.name]
 
-        if ext.name == "store":
-            search_patterns.extend(["ucmnfsstore", "ucmlocalstore", "ucmdramstore"])
-        elif ext.name == "gsa_offload_ops":
+        if ext.name == "gsa_offload_ops":
             search_patterns.extend(["gsa_offload_ops"])
         elif ext.name == "gsa_prefetch":
             search_patterns.extend(["prefetch"])
@@ -127,10 +124,7 @@ class CMakeBuild(build_ext):
                         so_files.append(file)
                         break
 
-        if ext.name == "store":
-            install_dir = STORE_INSTALL_DIR
-            build_install_dir = STORE_INSTALL_DIR
-        elif ext.name == "esaretrieval":
+        if ext.name == "esaretrieval":
             install_dir = RETRIEVAL_INSTALL_DIR
             build_install_dir = "ucm/ucm_sparse/retrieval"
         else:

@@ -107,10 +107,10 @@ private:
 
 PYBIND11_MODULE(ucmnfsstore, module)
 {
-    module.attr("project") = UC_VAR_PROJECT_NAME;
-    module.attr("version") = UC_VAR_PROJECT_VERSION;
-    module.attr("commit_id") = UC_VAR_GIT_COMMIT_ID;
-    module.attr("build_type") = UC_VAR_BUILD_TYPE;
+    module.attr("project") = UCM_PROJECT_NAME;
+    module.attr("version") = UCM_PROJECT_VERSION;
+    module.attr("commit_id") = UCM_COMMIT_ID;
+    module.attr("build_type") = UCM_BUILD_TYPE;
     auto store = py::class_<UC::NFSStorePy>(module, "NFSStore");
     auto config = py::class_<UC::NFSStorePy::Config>(store, "Config");
     config.def(py::init<const std::vector<std::string>&, const size_t, const bool>(),

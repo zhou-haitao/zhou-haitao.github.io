@@ -1,4 +1,4 @@
-if(BUILD_TESTS)
+if(BUILD_UNIT_TESTS)
     include(GoogleTest)
     file(GLOB_RECURSE UCMSTORE_TEST_SOURCE_FILES "./case/*.cc")
     add_executable(ucmstore.test ${UCMSTORE_TEST_SOURCE_FILES})

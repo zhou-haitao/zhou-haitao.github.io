@@ -11,7 +11,7 @@ from safetensors.torch import load as safetensors_load
 from safetensors.torch import save as safetensors_save
 
 from ucm.logger import init_logger
-from ucm.store.connector.ucmstore import Task, UcmKVStoreBase
+from ucm.store.ucmstore import Task, UcmKVStoreBase
 
 TIMEOUT_S_THR: int = 60 * 60
 DEFAULT_GLOBAL_SEGMENT_SIZE: int = 3355443200  # 3.125 GiB

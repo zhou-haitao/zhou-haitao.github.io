@@ -94,10 +94,10 @@ private:
 
 PYBIND11_MODULE(ucmdramstore, module)
 {
-    module.attr("project") = UC_VAR_PROJECT_NAME;
-    module.attr("version") = UC_VAR_PROJECT_VERSION;
-    module.attr("commit_id") = UC_VAR_GIT_COMMIT_ID;
-    module.attr("build_type") = UC_VAR_BUILD_TYPE;
+    module.attr("project") = UCM_PROJECT_NAME;
+    module.attr("version") = UCM_PROJECT_VERSION;
+    module.attr("commit_id") = UCM_COMMIT_ID;
+    module.attr("build_type") = UCM_BUILD_TYPE;
     auto store = py::class_<UC::DRAMStorePy>(module, "DRAMStore");
     auto config = py::class_<UC::DRAMStorePy::Config>(store, "Config");
     config.def(py::init<const size_t, const size_t>(), py::arg("ioSize"), py::arg("capacity"));
