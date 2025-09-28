@@ -57,11 +57,9 @@ please refer to [features matrix](docs/source/feature/support.md).
 
 ## Branch Policy
 Unified Cache has main branch, develop branch and release branch.
-- **main**: main is the most stable branch. Only the release branch can be integrated. The tag is attached to the main branch.
-- **develop**: develop is a daily development branch, new features will be merged in this branch.
-- **x.x.x-release**: each time we decide to release a new version, we checkout a release branch and test on this branch, this branch only accepted [bugfix]. When the branch passed test, we merge the branch into develop and main, tag the corresponding x.x.x tag based on the main branch, and finish the release.
-
-Usually, a commit should be ONLY first merged in the develop branch.
+- **main**: The main branch is the stable line; it receives merges from develop once basic tests pass. In principle, there should be no direct check-ins to the main branch.
+- **develop**: The develop branch is the daily development branch where new features are merged.
+- **release**: Each time a new version release process begins, release branch is merged from the main branch. This branch only accepts bug fixes, and all bug fixes will be picked back to the develop branch. After the release testing passes, a release tag (x.x.x) will be created on the release branch. The release branch will be retained for the next release.
 
 ---
 
