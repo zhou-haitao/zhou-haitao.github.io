@@ -1,6 +1,6 @@
 name: offline_inference_test
 on: 
-    workflow_call:
+    workflow_dispatch:
 
 jobs:
   offline-inference:
