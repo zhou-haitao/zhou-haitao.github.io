@@ -86,7 +86,7 @@ def patch_cuda_for_cpu():
 
 
 patch_cuda_for_cpu()
-from ucm.store.connector.dramstore_connector import (  # isort: skip
+from ucm.store.dramstore.dramstore_connector import (  # isort: skip
     DramTask,
     UcmDramStore,
 )

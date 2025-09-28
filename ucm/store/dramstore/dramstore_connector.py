@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from ucm.logger import init_logger
-from ucm.store.connector.ucmstore import Task, UcmKVStoreBase
+from ucm.store.ucmstore import Task, UcmKVStoreBase
 
 logger = init_logger(__name__)
 

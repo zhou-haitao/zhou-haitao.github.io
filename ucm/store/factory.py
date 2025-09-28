@@ -26,7 +26,7 @@ import importlib
 from typing import Callable
 
 from ucm.logger import init_logger
-from ucm.store.connector.ucmstore import UcmKVStoreBase
+from ucm.store.ucmstore import UcmKVStoreBase
 
 logger = init_logger(__name__)
 
@@ -58,13 +58,13 @@ class UcmConnectorFactory:
 
 
 UcmConnectorFactory.register_connector(
-    "UcmDramStore", "ucm.store.connector.dramstore_connector", "UcmDramStore"
+    "UcmDramStore", "ucm.store.dramstore.dramstore_connector", "UcmDramStore"
 )
 UcmConnectorFactory.register_connector(
-    "UcmNfsStore", "ucm.store.connector.nfsstore_connector", "UcmNfsStore"
+    "UcmNfsStore", "ucm.store.nfsstore.nfsstore_connector", "UcmNfsStore"
 )
 UcmConnectorFactory.register_connector(
     "UcmMooncakeStore",
-    "ucm.store.connector.mooncakestore_connector",
+    "ucm.store.mooncakestore.mooncake_connector",
     "UcmMooncakeStore",
 )

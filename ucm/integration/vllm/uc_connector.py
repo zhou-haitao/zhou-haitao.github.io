@@ -40,8 +40,8 @@ from vllm.distributed.parallel_state import get_world_group
 from vllm.v1.core.sched.output import SchedulerOutput
 
 from ucm.logger import init_logger
-from ucm.store.connector.factory import UcmConnectorFactory
-from ucm.store.connector.ucmstore import Task
+from ucm.store.factory import UcmConnectorFactory
+from ucm.store.ucmstore import Task
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionMetadata

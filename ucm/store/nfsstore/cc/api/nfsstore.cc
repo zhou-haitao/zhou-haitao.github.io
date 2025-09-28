@@ -99,9 +99,9 @@ public:
 private:
     void ShowConfig(const Config& config)
     {
-        std::string buildType = UC_VAR_BUILD_TYPE;
+        std::string buildType = UCM_BUILD_TYPE;
         if (buildType.empty()) { buildType = "Release"; }
-        UC_INFO("NFSStore-{}({}).", UC_VAR_GIT_COMMIT_ID, buildType);
+        UC_INFO("NFSStore-{}({}).", UCM_COMMIT_ID, buildType);
         UC_INFO("Set UC::StorageBackends to {}.", config.storageBackends);
         UC_INFO("Set UC::BlockSize to {}.", config.kvcacheBlockSize);
         UC_INFO("Set UC::TransferEnable to {}.", config.transferEnable);

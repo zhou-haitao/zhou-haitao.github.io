@@ -41,8 +41,7 @@ jobs:
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      working-directory: ${{github.workspace}}/ucm/store
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTS=ON -DCOVERAGE_ENABLED=ON -DDOWNLOAD_DEPENDENCE=ON -DRUNTIME_ENVIRONMENT=simu -DLOGGER_BACKEND=spdlog
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_UNIT_TESTS=ON -DDOWNLOAD_DEPENDENCE=ON -DRUNTIME_ENVIRONMENT=simu
 
     - name: Build
       # Build your program with the given configuration
