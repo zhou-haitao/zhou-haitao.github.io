@@ -437,13 +437,13 @@ class GSA(UcmSparseBase):
                 * self.layer_num
                 * (1 if self.use_mla else self.num_head * self.total_tp_size * 2)
             )
-            transferIoSize = config_base * (1 if self.use_mla else self.num_head)
+            io_size = config_base * (1 if self.use_mla else self.num_head)
             nfs_config = {
                 "storage_backends": "./ucm/data/" + str(self.rank),
                 "kv_block_size": kv_block_size,
                 "device": self.rank,
                 "role": "worker",
-                "transferIoSize": transferIoSize,
+                "io_size": io_size,
             }
             self.connector = UcmConnectorFactory.create_connector(
                 "UcmNfsStore", nfs_config

@@ -28,7 +28,7 @@
 
 namespace UC {
 
-class DramStore : public CCStore {
+class DRAMStore : public CCStore {
 public:
     struct Config {
         size_t ioSize;
@@ -41,8 +41,8 @@ public:
     };
 
 public:
-    DramStore() : impl_{nullptr} {}
-    ~DramStore() override
+    DRAMStore() : impl_{nullptr} {}
+    ~DRAMStore() override
     {
         if (this->impl_) { delete this->impl_; }
     }
@@ -73,7 +73,7 @@ public:
     }
 
 private:
-    DramStore* impl_;
+    DRAMStore* impl_;
 };
 
 } // namespace UC

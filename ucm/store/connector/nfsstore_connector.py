@@ -39,30 +39,31 @@ class NfsTask(Task):
 class UcmNfsStore(UcmKVStoreBase):
     def __init__(self, config: Dict):
         super().__init__(config)
+        self.store = ucmnfsstore.NFSStore()
         storage_backends = [
             path for path in config["storage_backends"].split(":") if path
         ]
         block_size = int(config["kv_block_size"])
         transfer_enable = True if config["role"] == "worker" else False
-        param = ucmnfsstore.NfsStore.Config(
+        param = ucmnfsstore.NFSStore.Config(
             storage_backends, block_size, transfer_enable
         )
         if transfer_enable:
             param.transferDeviceId = config["device"]
-            param.transferIoSize = config["transferIoSize"]
-        ret = ucmnfsstore.Setup(param)
+            param.transferIoSize = config["io_size"]
+        ret = self.store.Setup(param)
         if ret != 0:
             msg = f"Failed to initialize ucmnfsstore, errcode: {ret}."
             raise RuntimeError(msg)
 
     def cc_store(self) -> int:
-        return ucmnfsstore.CCStoreImpl()
+        return self.store.CCStoreImpl()
 
     def create(self, block_ids: List[str]) -> List[int]:
-        return ucmnfsstore.AllocBatch(block_ids)
+        return self.store.AllocBatch(block_ids)
 
     def lookup(self, block_ids: List[str]) -> List[bool]:
-        return ucmnfsstore.LookupBatch(block_ids)
+        return self.store.LookupBatch(block_ids)
 
     def prefetch(self, block_ids: List[str]) -> None:
         pass
@@ -72,7 +73,7 @@ class UcmNfsStore(UcmKVStoreBase):
     ) -> Task:
         dst_tensor_ptr = [t.data_ptr() for t in dst_tensor]
         dst_tensor_size = [t.numel() * t.element_size() for t in dst_tensor]
-        task_id = ucmnfsstore.LoadToDevice(
+        task_id = self.store.LoadToDevice(
             block_ids, offset, dst_tensor_ptr, dst_tensor_size
         )
         return NfsTask(task_id=task_id)
@@ -82,16 +83,16 @@ class UcmNfsStore(UcmKVStoreBase):
     ) -> Task:
         src_tensor_ptr = [t.data_ptr() for t in src_tensor]
         src_tensor_size = [t.numel() * t.element_size() for t in src_tensor]
-        task_id = ucmnfsstore.DumpFromDevice(
+        task_id = self.store.DumpFromDevice(
             block_ids, offset, src_tensor_ptr, src_tensor_size
         )
         return NfsTask(task_id=task_id)
 
     def wait(self, task: Task) -> int:
-        return ucmnfsstore.Wait(task.task_id)
+        return self.store.Wait(task.task_id)
 
     def commit(self, block_ids: List[str], is_success: bool = True) -> None:
-        ucmnfsstore.CommitBatch(block_ids, is_success)
+        self.store.CommitBatch(block_ids, is_success)
 
     def check(self, task: Task) -> Tuple[int, bool]:
-        return ucmnfsstore.Check(task.task_id)
+        return self.store.Check(task.task_id)

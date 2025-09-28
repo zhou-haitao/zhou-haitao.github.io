@@ -29,7 +29,7 @@
 
 namespace UC {
 
-class NfsStore : public CCStore {
+class NFSStore : public CCStore {
 public:
     struct Config {
         std::vector<std::string> storageBackends;
@@ -51,8 +51,8 @@ public:
     };
 
 public:
-    NfsStore() : impl_{nullptr} {}
-    ~NfsStore() override
+    NFSStore() : impl_{nullptr} {}
+    ~NFSStore() override
     {
         if (this->impl_) { delete this->impl_; }
     }
@@ -83,7 +83,7 @@ public:
     }
 
 private:
-    NfsStore* impl_;
+    NFSStore* impl_;
 };
 
 }; // namespace UC

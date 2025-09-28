@@ -138,13 +138,11 @@ class UnifiedCacheConnectorV1(KVConnectorBase_V1):
                 * self.num_layers
                 * (1 if self.is_mla else self.num_head * self.total_tp_size * 2)
             )
-            config["transferIoSize"] = config_base * (
-                1 if self.is_mla else self.num_head
-            )
+            config["io_size"] = config_base * (1 if self.is_mla else self.num_head)
             logger.info(
-                "kv_block_size = %d, transferIoSize = %d,",
+                "kv_block_size = %d, io_size = %d,",
                 config["kv_block_size"],
-                config["transferIoSize"],
+                config["io_size"],
             )
             logger.info("init UCConnectorImpl, connector: %s", name)
             self.connector = UcmConnectorFactory.create_connector(name, config)

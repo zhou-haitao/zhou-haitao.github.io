@@ -27,7 +27,7 @@
 
 namespace UC {
 
-class DramStoreImpl : public DramStore {
+class DRAMStoreImpl : public DRAMStore {
 public:
     int32_t Setup(const size_t ioSize, const size_t capacity, const int32_t deviceId) { return -1; }
     int32_t Alloc(const std::string& block) override { return -1; }
@@ -47,9 +47,9 @@ public:
     int32_t Check(const size_t task, bool& finish) override { return -1; }
 };
 
-int32_t DramStore::Setup(const Config& config)
+int32_t DRAMStore::Setup(const Config& config)
 {
-    auto impl = new (std::nothrow) DramStoreImpl();
+    auto impl = new (std::nothrow) DRAMStoreImpl();
     if (!impl) {
         UC_ERROR("Out of memory.");
         return Status::OutOfMemory().Underlying();
